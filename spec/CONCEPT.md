@@ -1,76 +1,129 @@
-# Solution Concept of MetaPub
+# MetaPub: Solution Manifesto
 
-## What this is? Why this has come?
+## Executive Summary
 
-- A metadata registry or data catalog with powerful extended features CUSTOMIZED for our company
-  - Customized UX for our main use cases
-  - Customized data availability criteria that we use
-  - Customized data governance criteria that we use
-  - Customized verification API for our AI-automated pipeline development
+MetaPub is a **purpose-built metadata registry and data catalog** designed to address the unique needs of modern data organizations operating in an AI-first world. Unlike generic solutions that attempt to serve all use cases, MetaPub embraces customization as a core principle, delivering superior user experiences for data producers, consumers, and AI agents alike.
 
-Customized UX can be created for various data users e.g. pipeline developers
-and domain analysts. Meanwhile generic tools such as DataHub, Open-Metadata or Atlas offers
-UXs that focuses on omni-functionality throughout all domains and result in sub-optimal UX for
-most users. 
+## The Problem: Generic Solutions in a Specialized World
 
-Some companies have data-mesh style data architecture where several domain-specific data-pipelines 
-are operated other than the one by central data-engineering team. For example, While DE team 
-operates large-scale cost-effective pipeline with various expert tools like Flink and Spark. 
-Business Teams operates simple periodic SQL callers or even manualy updated tables.
-This means that not only the data consumption experience, but also the data production experience
-can be customized for best user experience. And it is very hard for generic solution to offer
-both simple usability and deep information.
+Modern data organizations face a fundamental mismatch: existing data catalog solutions (DataHub, Open Metadata, Atlas) pursue universal functionality, but real-world data teams have specific, contextual needs that generic tools cannot efficiently address.
 
-Things are becoming more complicated because AI-coding SHOULD be introduced. AI coding in data
-pipeline requires 2-fold change in data infrastucture. Firstly, the access control and dev/prod 
-environment architecture should be overhauled to support AI agents to do their jobs without ruining 
-data pipeline. Secondly, a new infrastructure is required to validate data developed by AI agents
-without scanning all previous data or writing all anomaly-detection models for each time the 
-pipeline is modified. This second role is most likely to be covered by extending functionality of
-metadata registry(or data catalog). Generalization in this aspect? This will be very hard to
-achieve.
+### Key Challenges:
 
-(Footnote. Some companies are already implementing this customization although sometimes they are not called 
-data catalog. Sometimes they are called customer data platform(CDP) although it is in fact closer to 
-the concept of metadata registry rather than the real CDP. Sometimes, the implementation is called 
-feature store although it is in fact closer to metadata registry again.)
+1. **Suboptimal User Experience**: Generic tools prioritize feature breadth over depth, resulting in interfaces that work for everyone but excel for no one. Data analysts, pipeline developers, and domain experts all have distinct workflows that deserve dedicated optimization.
 
-In conclusion, a perfect generalization is not achievable, in fact, previous solutions that
-pursue generality are not even close to the 'good' level for individual companies. So, if 
-customization is possible, it should be done. and nowadays, even small companies can have luxary
-of building customized solution using AI coding.
+2. **Data Mesh Complexity**: Organizations increasingly adopt data mesh architectures where multiple teams manage domain-specific pipelines:
+   - Central data engineering teams operate large-scale, cost-effective pipelines using sophisticated tools (Flink, Spark)
+   - Business teams run simpler periodic SQL jobs or maintain manually updated tables
+   - Each team requires different levels of complexity, visibility, and control
 
-## Who uses this? (Use Cases)
+3. **The AI Transformation**: The introduction of AI coding agents fundamentally changes data infrastructure requirements in two critical ways:
+   - **Access Control Evolution**: Development and production environments must be restructured to allow AI agents to work safely without compromising live data pipelines
+   - **Validation Infrastructure**: New systems are needed to validate AI-generated code and data transformations without exhaustive historical scans or per-modification anomaly detection models
 
-- Data analysts and AI(DA)-agents can use this as data catalog
-  - Schema, column meanings
-  - Relationship between datasets (ancestors and descendants in lineage)
-  - Data availability in various metric (date ranges, product types, user cohorts, ...)
-  - Data statistics and samples (mean and sd for numeric variables, cardinality and entropy for categorical columns)
-  - SQL samples (e.g. frequently used standard SQL from SQL-engine logs)
-- Data engineers and stewards will use this as data availability monitor
-  - To set data arrival frequency and quantity check rules and monitor
-  - To check usage statistics
-- Data engineers and stewards will use this as data consistency and integrity monitor
-  - To set column-specific quality check rules and monitor
-  - To set timeseries anomaly detection rules on timeseries data
-- Data engineers and AI(DE)-agents can use this as data-pipeline validation side-note
-  - To check the modified pipeline's result is consistent with previous samples
-  - To check the modified pipeline's result is within boundary of checking rules
-- Information security 
-  - To monitor about access levels
-  - To monitor about Privacy levels of data
+### The Generalization Paradox
 
-# How is this designed?
+Perfect generalization in data catalog solutions is not merely difficult—it is unachievable. Organizations that have successfully scaled their data operations often build custom solutions under various names (customer data platforms, feature stores, custom registries) that serve metadata registry functions tailored to their specific needs.
 
-- Strict of separation of frontend, backend and API.
-  - API will be RESTful API or GraphQL
-  - Although API documentation can be offered as a side-product of BE. It should also be standalone
-    in a separated directory. This is for two reasons: First, to facilitate the coding and checking 
-    iteration of AI agents. Second, to build a sample API documentation without mocking API server.
-- For backend, python API server is preferred.
-  - It is because of its rubustness in accessing various data storage types and using various 
-    statistic models that can be used in data validations.
-- For frontend, typescript-based frameworks (e.g. next.js) are preffered.
-  - Because they are popular.
-  - Chart libraries (e.g. Highcharts) should be used to display charts.
+**The reality**: If customization can be done, it should be done. With modern AI-assisted development, even small organizations can now build customized solutions that would have previously required prohibitive engineering resources.
+
+## Our Solution: Purposeful Customization
+
+MetaPub is built on four pillars of customization:
+
+1. **Customized User Experience**: Tailored interfaces for specific user personas and workflows
+2. **Customized Data Availability Criteria**: Organization-specific metrics and thresholds
+3. **Customized Data Governance**: Company-aligned policies and compliance requirements
+4. **Customized Verification APIs**: Purpose-built validation for AI-automated pipeline development
+
+## Target Users & Use Cases
+
+### For Data Analysts & AI Analyst Agents
+**Role**: Data Discovery and Exploration
+
+- **Schema Intelligence**: Comprehensive schema documentation and column semantics
+- **Lineage Tracking**: Clear visibility into dataset relationships (upstream sources and downstream dependencies)
+- **Data Availability Metrics**: Multi-dimensional availability views (date ranges, product types, user cohorts, geographic segments)
+- **Statistical Profiles**: Automated statistics generation
+  - Numeric variables: mean, standard deviation, percentiles, distributions
+  - Categorical columns: cardinality, entropy, frequency distributions
+- **Query Library**: Curated SQL samples and frequently-used query patterns from engine logs
+
+### For Data Engineers & Data Stewards
+**Role**: Data Quality Assurance and Monitoring
+
+- **Availability Monitoring**:
+  - Configure data arrival frequency expectations
+  - Set quantity check rules and alert thresholds
+  - Track usage statistics and access patterns
+
+- **Consistency & Integrity Monitoring**:
+  - Define column-specific quality check rules
+  - Implement time-series anomaly detection for evolving data
+  - Establish data validation boundaries
+
+### For AI Pipeline Development Agents
+**Role**: Automated Validation and Verification
+
+- **Pipeline Validation Framework**:
+  - Compare modified pipeline outputs against historical samples
+  - Verify results conform to established quality boundaries
+  - Automated regression detection for code changes
+
+### For Information Security Teams
+**Role**: Compliance and Access Governance
+
+- **Access Level Monitoring**: Track and audit data access permissions
+- **Privacy Management**: Monitor and enforce data privacy classifications and handling requirements
+
+## Design Principles
+
+MetaPub is architected to be modular, maintainable, and AI-friendly from the ground up.
+
+### Architectural Separation
+
+**Strict separation of Frontend, Backend, and API layers**
+
+- **API Layer**: RESTful API or GraphQL for maximum flexibility and interoperability
+- **Standalone API Documentation**: Maintained as independent specifications in dedicated directories
+  - **Rationale 1**: Enables rapid iteration cycles for AI-assisted development and validation
+  - **Rationale 2**: Facilitates API-first development without requiring full backend implementation
+  - **Rationale 3**: Provides clear contracts for cross-team collaboration
+
+### Technology Stack
+
+**Backend: Python-based API Server**
+
+- **Primary Justification**: Python's ecosystem provides unmatched capabilities for:
+  - Robust connectors to diverse data storage systems
+  - Rich statistical and machine learning libraries for data validation
+  - Extensive data manipulation and analysis tools
+- **Secondary Benefits**:
+  - Strong typing support (with type hints)
+  - Mature API frameworks (FastAPI, Flask, Django)
+  - Broad talent pool and community support
+
+**Frontend: TypeScript-based Modern Frameworks**
+
+- **Primary Choice**: Next.js or similar TypeScript frameworks
+- **Justification**:
+  - Industry-standard tooling with strong ecosystem
+  - Type safety reduces runtime errors and improves maintainability
+  - Excellent developer experience and AI coding support
+- **Visualization**: Professional charting libraries (e.g., Highcharts, D3.js, Recharts)
+  - Rich, interactive data visualizations
+  - Production-ready components for data-intensive applications
+
+## Value Proposition
+
+MetaPub represents a paradigm shift from generic, one-size-fits-all data catalogs to purpose-built, organization-aligned metadata infrastructure:
+
+- **Superior User Experience**: Interfaces optimized for actual workflows, not hypothetical ones
+- **AI-Native Architecture**: Built from the start to support AI agents as first-class users
+- **Flexible Governance**: Customizable to your organization's specific compliance and policy requirements
+- **Scalable Validation**: Efficient data quality checks that scale with AI-driven development velocity
+- **Future-Proof Design**: Modular architecture that evolves with your organization's data maturity
+
+---
+
+*MetaPub: The metadata registry that grows with your organization, not against it.*
