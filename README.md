@@ -1,2 +1,3 @@
-# metapub-spec
-Metadata Registry Spec for AI coding
+# dataspoke-spec
+
+DataSpoke Solution Spec for AI coding
