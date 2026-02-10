@@ -1,0 +1,66 @@
+# DataHub Helm values for local development environment
+# Optimized for a local Kubernetes cluster (e.g., Docker Desktop, kind, minikube)
+
+# Fix: the datahub chart defaults to "prerequisites-*" hostnames, but the
+# prerequisites chart (when installed as "datahub-prerequisites") creates
+# services named "datahub-prerequisites-*". Override all affected endpoints.
+global:
+  sql:
+    datasource:
+      host: "datahub-prerequisites-mysql:3306"
+      hostForMysqlClient: "datahub-prerequisites-mysql"
+      url: "jdbc:mysql://datahub-prerequisites-mysql:3306/datahub?verifyServerCertificate=false&useSSL=true&useUnicode=yes&characterEncoding=UTF-8&enabledTLSProtocols=TLSv1.2"
+  kafka:
+    bootstrap:
+      server: "datahub-prerequisites-kafka:9092"
+    zookeeper:
+      server: "datahub-prerequisites-zookeeper:2181"
+
+datahub-gms:
+  replicaCount: 1
+  resources:
+    limits:
+      memory: 1536Mi
+    requests:
+      memory: 1024Mi
+      cpu: 100m
+
+datahub-frontend:
+  replicaCount: 1
+  resources:
+    limits:
+      memory: 1024Mi
+    requests:
+      memory: 512Mi
+      cpu: 100m
+
+datahub-mae-consumer:
+  replicaCount: 1
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      memory: 256Mi
+      cpu: 100m
+
+datahub-mce-consumer:
+  replicaCount: 1
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      memory: 256Mi
+      cpu: 100m
+
+datahub-actions:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      memory: 256Mi
+      cpu: 100m
+
+acryl-datahub-actions:
+  enabled: false

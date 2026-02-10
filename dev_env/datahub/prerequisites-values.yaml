@@ -1,0 +1,64 @@
+# DataHub prerequisites Helm values for local development environment
+# Optimized for a local Kubernetes cluster (e.g., Docker Desktop, kind, minikube)
+
+# Kafka (via cp-helm-charts)
+cp-kafka:
+  replicaCount: 1
+  resources:
+    limits:
+      memory: 1Gi
+    requests:
+      memory: 512Mi
+      cpu: 100m
+
+cp-zookeeper:
+  replicaCount: 1
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      memory: 256Mi
+      cpu: 100m
+
+cp-schema-registry:
+  replicaCount: 1
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      memory: 256Mi
+      cpu: 100m
+
+# Elasticsearch
+elasticsearch:
+  replicas: 1
+  minimumMasterNodes: 1
+  esJavaOpts: "-Xmx512m -Xms512m"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 1Gi
+    limits:
+      memory: 1Gi
+  persistence:
+    enabled: false
+
+# MySQL
+mysql:
+  auth:
+    rootPassword: datahub
+    username: datahub
+    password: datahub
+    database: datahub
+  primary:
+    resources:
+      limits:
+        memory: 512Mi
+      requests:
+        memory: 256Mi
+        cpu: 100m
+    persistence:
+      enabled: false
+
+neo4j:
+  enabled: false
