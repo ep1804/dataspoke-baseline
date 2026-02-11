@@ -1,0 +1,70 @@
+# DataHub Helm values — local dev sizing
+# Chart: datahub/datahub version 0.8.3 (app version v1.4.0)
+#
+# Service name overrides point to the datahub-prerequisites release.
+# Because the prerequisites chart is installed as release name
+# "datahub-prerequisites", all internal service names get the
+# "datahub-prerequisites-" prefix.
+
+global:
+  sql:
+    datasource:
+      host: "datahub-prerequisites-mysql:3306"
+  kafka:
+    bootstrap:
+      server: "datahub-prerequisites-kafka:9092"
+    zookeeper:
+      server: "datahub-prerequisites-zookeeper:2181"
+  graph_service_impl: neo4j
+  neo4j:
+    host: "datahub-prerequisites-neo4j"
+    uri: "neo4j://datahub-prerequisites-neo4j:7687"
+    username: "neo4j"
+    password:
+      secretRef: "neo4j-secrets"
+      secretKey: "neo4j-password"
+
+datahub-gms:
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "1536Mi"
+
+datahub-frontend:
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "768Mi"
+
+datahub-mae-consumer:
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+datahub-mce-consumer:
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+datahub-actions:
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"

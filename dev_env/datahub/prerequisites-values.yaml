@@ -1,0 +1,83 @@
+# DataHub prerequisites Helm values — local dev sizing
+# Chart: datahub/datahub-prerequisites version 0.2.1
+# Target cluster: 6 CPU / 16 GB RAM
+# All components use replicaCount: 1 for minimal resource usage.
+
+cp-kafka:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "384Mi"
+    limits:
+      cpu: "1000m"
+      memory: "768Mi"
+
+cp-zookeeper:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+
+cp-schema-registry:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+
+elasticsearch:
+  replicaCount: 1
+  esJavaOpts: "-Xmx768m -Xms768m"
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+  persistence:
+    enabled: false
+
+mysql:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  auth:
+    existingSecret: "mysql-secrets"
+    # keys: mysql-root-password, mysql-password
+  persistence:
+    enabled: false
+
+neo4j:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+  neo4j:
+    password:
+      secretRef: "neo4j-secrets"
+      secretKey: "neo4j-password"
+  volumes:
+    data:
+      mode: defaultStorageClass
+      defaultStorageClass:
+        requests:
+          storage: "10Gi"
