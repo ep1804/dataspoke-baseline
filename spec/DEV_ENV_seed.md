@@ -1,7 +1,4 @@
-
-current codes `dev_env_old` directory have some flaws and should be rewritten in `dev_env` directory.
-
-it should be changed as follows.
+seed for writing DEV_ENV plan document
 
 ## archiutecture
 
@@ -23,9 +20,9 @@ it should be changed as follows.
     - write .env file fo dev-environment
     - possible variables are:
       - DATASPOKE_KUBE_CLUSTER=dockkube
-      - DATASPOKE_KUBE_DATAHUB_NAMESPACE=datahub
-      - DATASPOKE_KUBE_DATASPOKE_NAMESPACE=dataspoke
-      - DATASPOKE_KUBE_DATASPOKE_EXAMPLE_NAMESPACE=dataspoke-example
+      - DATASPOKE_KUBE_DATAHUB_NAMESPACE=datahub1
+      - DATASPOKE_KUBE_DATASPOKE_NAMESPACE=dataspoke1
+      - DATASPOKE_KUBE_DATASPOKE_EXAMPLE_NAMESPACE=dataspoke1-example
   - setup datahub in datahub namespaces
     - read datahub installation document and follow
     - fix datahub version or its helm-chart version to currently highest one

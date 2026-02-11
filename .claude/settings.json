@@ -40,7 +40,6 @@
       "WebFetch(domain:code.claude.com)"
     ],
     "deny": [
-      "Bash(kubectl delete namespace *)",
       "Bash(rm -rf *)",
       "Bash(sudo *)"
     ]
