@@ -1,0 +1,48 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kubectl get *)",
+      "Bash(kubectl describe *)",
+      "Bash(kubectl logs *)",
+      "Bash(kubectl config get-contexts*)",
+      "Bash(kubectl config use-context *)",
+      "Bash(kubectl config current-context*)",
+      "Bash(kubectl port-forward *)",
+      "Bash(helm list *)",
+      "Bash(helm status *)",
+      "Bash(helm show *)",
+      "Bash(helm repo *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(docker ps*)",
+      "Bash(docker images*)",
+      "Bash(docker inspect *)",
+      "WebSearch",
+      "WebFetch(domain:docs.python.org)",
+      "WebFetch(domain:fastapi.tiangolo.com)",
+      "WebFetch(domain:docs.pydantic.dev)",
+      "WebFetch(domain:docs.sqlalchemy.org)",
+      "WebFetch(domain:alembic.sqlalchemy.org)",
+      "WebFetch(domain:docs.temporal.io)",
+      "WebFetch(domain:nextjs.org)",
+      "WebFetch(domain:react.dev)",
+      "WebFetch(domain:tailwindcss.com)",
+      "WebFetch(domain:tanstack.com)",
+      "WebFetch(domain:kubernetes.io)",
+      "WebFetch(domain:helm.sh)",
+      "WebFetch(domain:docs.docker.com)",
+      "WebFetch(domain:datahubproject.io)",
+      "WebFetch(domain:qdrant.tech)",
+      "WebFetch(domain:developer.mozilla.org)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:code.claude.com)"
+    ],
+    "deny": [
+      "Bash(kubectl delete namespace *)",
+      "Bash(rm -rf *)",
+      "Bash(sudo *)"
+    ]
+  }
+}

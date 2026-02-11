@@ -88,3 +88,28 @@ alembic upgrade head  # Apply DB migrations
 - `spec/USE_CASE.md` — conceptual scenarios (vision/ideation, not implementation specs)
 - `spec/MANIFESTO_en.md` / `spec/MANIFESTO_kr.md` — product philosophy
 - `dev_env/README.md` — local Kubernetes setup details
+
+## Claude Code Configuration (`.claude/`)
+
+### Skills — invoked with `/skill-name` or auto-triggered by Claude
+
+| Skill | Invocation | Purpose |
+|-------|-----------|---------|
+| `kubectl` | `/kubectl <operation>` | Run kubectl/helm operations against the local cluster; reads `dev_env/.env` for context and namespaces. User-invoked only. |
+| `monitor-k8s` | `/monitor-k8s [focus]` | Full cluster health report (pods, events, Helm releases). Runs in a forked Explore subagent. |
+| `plan-doc` | `/plan-doc <topic>` | Write spec/design documents in `spec/` following the existing markdown style. |
+
+### Subagents — Claude delegates automatically based on task context
+
+| Agent | When Claude uses it |
+|-------|-------------------|
+| `api-spec` | Designing or writing OpenAPI 3.0 specs in `api/` |
+| `frontend` | Implementing Next.js/TypeScript features in `src/frontend/` |
+| `backend` | Implementing FastAPI/Python services in `src/api/`, `src/backend/`, `src/workflows/`, `src/shared/` |
+| `k8s-helm` | Writing Helm charts, Dockerfiles, or dev env scripts |
+
+`frontend` and `backend` subagents use `memory: project` — they accumulate patterns, module locations, and architectural decisions in `.claude/agent-memory/` across sessions.
+
+### Permissions (`.claude/settings.json`)
+
+Read-only kubectl, helm, git, and docker commands are auto-allowed. Mutating commands (apply, install, rollout) prompt for confirmation. `kubectl delete namespace`, `rm -rf`, and `sudo` are always blocked.
