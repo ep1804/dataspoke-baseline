@@ -48,17 +48,16 @@ src/
 
 ## DataHub integration patterns
 
-```python
-# Reading from DataHub via GraphQL
-from src.shared.datahub.client import DataHubClient
-client = DataHubClient(gms_url=settings.datahub_gms_url)
-datasets = await client.search_datasets(query="...")
+- **Reading**: wrap DataHub's GraphQL API in a `DataHubClient` class under `src/shared/datahub/`. Use `async def` methods that query GMS at `settings.datahub_gms_url`.
+- **Writing**: use `DatahubRestEmitter` from the `acryl-datahub` package to emit MCEs via REST:
 
-# Writing to DataHub via REST emitter
+```python
 from datahub.emitter.rest_emitter import DatahubRestEmitter
 emitter = DatahubRestEmitter(gms_server=settings.datahub_gms_url)
 emitter.emit_mce(mce)
 ```
+
+Before writing the client wrapper, scan `src/shared/datahub/` — the class may already exist with its own conventions.
 
 ## Output expectations
 

@@ -12,26 +12,22 @@ All scripts live in `dev_env/` and use settings from `dev_env/.env`:
 
 ```bash
 # Edit cluster settings before first use
-# DATASPOKE_DEV_KUBE_CONTEXT, DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE, DATASPOKE_DEV_KUBE_DATASPOKE_NAMESPACE
+# DATASPOKE_KUBE_CLUSTER, DATASPOKE_KUBE_DATAHUB_NAMESPACE, DATASPOKE_KUBE_DATASPOKE_NAMESPACE
 
-# Install DataHub (takes 5–10 min on first run)
-cd dev_env/datahub && ./install.sh
+# Install everything (takes 5–10 min on first run)
+cd dev_env && ./install.sh
 
-# Uninstall DataHub
-cd dev_env/datahub && ./uninstall.sh
-
-# Access DataHub UI (credentials: datahub/datahub)
-kubectl port-forward --namespace datahub \
-  $(kubectl get pods -n datahub -l 'app.kubernetes.io/name=datahub-frontend' -o jsonpath='{.items[0].metadata.name}') \
-  9002:9002
-# → http://localhost:9002
+# Uninstall everything
+cd dev_env && ./uninstall.sh
 
 # Verify installation
-kubectl get pods -n datahub
-helm list -n datahub
+kubectl get pods -n $DATASPOKE_KUBE_DATAHUB_NAMESPACE
+helm list -n $DATASPOKE_KUBE_DATAHUB_NAMESPACE
 ```
 
-Pinned Helm chart versions: `datahub-prerequisites@0.2.1`, `datahub@0.8.3` (app `v1.4.0`).
+For accessing the DataHub UI and example data sources, see `dev_env/README.md` §Quick Start or run `dev_env/datahub-port-forward.sh`.
+
+Helm chart versions are set in `dev_env/.env` (`DATASPOKE_DEV_KUBE_DATAHUB_PREREQUISITES_CHART_VERSION`, `DATASPOKE_DEV_KUBE_DATAHUB_CHART_VERSION`). Current pins: `datahub-prerequisites@0.2.1`, `datahub@0.8.3` (app `v1.4.0`).
 
 ## Architecture Overview
 
@@ -93,11 +89,22 @@ alembic upgrade head  # Apply DB migrations
 
 ### Skills — invoked with `/skill-name` or auto-triggered by Claude
 
+Skills live in `.claude/skills/`. Claude loads them automatically when the context matches, or you can invoke them explicitly.
+
 | Skill | Invocation | Purpose |
 |-------|-----------|---------|
 | `kubectl` | `/kubectl <operation>` | Run kubectl/helm operations against the local cluster; reads `dev_env/.env` for context and namespaces. User-invoked only. |
-| `monitor-k8s` | `/monitor-k8s [focus]` | Full cluster health report (pods, events, Helm releases). Runs in a forked Explore subagent. |
+| `monitor-k8s` | `/monitor-k8s [focus]` | Full cluster health report (pods, events, Helm releases). Runs in a forked subagent. |
 | `plan-doc` | `/plan-doc <topic>` | Write spec/design documents in `spec/` following the existing markdown style. |
+
+### Commands — user-invoked workflows
+
+Commands live in `.claude/commands/`. Invoke them explicitly with `/command-name`.
+
+| Command | Invocation | Purpose |
+|---------|-----------|---------|
+| `dataspoke-dev-env-install` | `/dataspoke-dev-env-install` | End-to-end dev environment setup: configure `.env`, preflight checks, run `install.sh`, monitor progress, report access details. |
+| `dataspoke-dev-env-uninstall` | `/dataspoke-dev-env-uninstall` | Tear down the dev environment: show current state, confirm with user, run `uninstall.sh`, clean up orphaned PVs. |
 
 ### Subagents — Claude delegates automatically based on task context
 

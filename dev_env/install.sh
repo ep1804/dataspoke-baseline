@@ -4,11 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------------------------------------------------------------------------
-# Helper functions
+# Shared helpers
 # ---------------------------------------------------------------------------
-info()  { echo -e "\033[0;32m[INFO]\033[0m  $*"; }
-warn()  { echo -e "\033[0;33m[WARN]\033[0m  $*"; }
-error() { echo -e "\033[0;31m[ERROR]\033[0m $*" >&2; exit 1; }
+# shellcheck source=lib/helpers.sh
+source "$SCRIPT_DIR/lib/helpers.sh"
 
 # ---------------------------------------------------------------------------
 # Load configuration
@@ -42,7 +41,7 @@ kubectl config use-context "${DATASPOKE_KUBE_CLUSTER}"
 NAMESPACES=(
   "${DATASPOKE_KUBE_DATAHUB_NAMESPACE}"
   "${DATASPOKE_KUBE_DATASPOKE_NAMESPACE}"
-  "${DATASPOKE_KUBE_DATASPOKE_EXAMPLE_NAMESPACE}"
+  "${DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE}"
 )
 
 for NS in "${NAMESPACES[@]}"; do
@@ -61,10 +60,10 @@ info "Running datahub/install.sh..."
 bash "$SCRIPT_DIR/datahub/install.sh"
 
 # ---------------------------------------------------------------------------
-# Install dataspoke1-example sources
+# Install dataspoke-example sources
 # ---------------------------------------------------------------------------
-info "Running dataspoke1-example/install.sh..."
-bash "$SCRIPT_DIR/dataspoke1-example/install.sh"
+info "Running dataspoke-example/install.sh..."
+bash "$SCRIPT_DIR/dataspoke-example/install.sh"
 
 # ---------------------------------------------------------------------------
 # Summary
@@ -75,7 +74,7 @@ echo ""
 echo "Namespaces:"
 kubectl get namespaces "${DATASPOKE_KUBE_DATAHUB_NAMESPACE}" \
   "${DATASPOKE_KUBE_DATASPOKE_NAMESPACE}" \
-  "${DATASPOKE_KUBE_DATASPOKE_EXAMPLE_NAMESPACE}" 2>/dev/null || true
+  "${DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE}" 2>/dev/null || true
 echo ""
 echo "DataHub UI port-forward:"
 echo ""
@@ -89,8 +88,7 @@ echo ""
 echo "  Open: http://localhost:9002"
 echo "  Credentials: datahub / datahub"
 echo ""
-echo "Example sources port-forwards:"
+echo "Example source port-forward:"
 echo ""
-echo "  kubectl port-forward --namespace ${DATASPOKE_KUBE_DATASPOKE_EXAMPLE_NAMESPACE} svc/example-mysql 3306:3306"
-echo "  kubectl port-forward --namespace ${DATASPOKE_KUBE_DATASPOKE_EXAMPLE_NAMESPACE} svc/example-postgres 5432:5432"
+echo "  kubectl port-forward --namespace ${DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE} svc/example-postgres 5432:5432"
 echo ""

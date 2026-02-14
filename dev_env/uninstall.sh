@@ -4,11 +4,24 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------------------------------------------------------------------------
-# Helper functions
+# Shared helpers
 # ---------------------------------------------------------------------------
-info()  { echo -e "\033[0;32m[INFO]\033[0m  $*"; }
-warn()  { echo -e "\033[0;33m[WARN]\033[0m  $*"; }
-error() { echo -e "\033[0;31m[ERROR]\033[0m $*" >&2; exit 1; }
+# shellcheck source=lib/helpers.sh
+source "$SCRIPT_DIR/lib/helpers.sh"
+
+# ---------------------------------------------------------------------------
+# Parse flags
+#   --yes                skip the "remove all resources?" confirmation prompt
+#   --delete-namespaces  skip the "delete namespaces?" prompt and delete them
+# ---------------------------------------------------------------------------
+YES=false
+DELETE_NAMESPACES=false
+for arg in "$@"; do
+  case "$arg" in
+    --yes) YES=true ;;
+    --delete-namespaces) DELETE_NAMESPACES=true ;;
+  esac
+done
 
 # ---------------------------------------------------------------------------
 # Load configuration
@@ -25,22 +38,24 @@ echo ""
 # ---------------------------------------------------------------------------
 # Confirm before proceeding
 # ---------------------------------------------------------------------------
-read -r -p "Remove all dev_env resources? [y/N] " CONFIRM
-if [[ ! "${CONFIRM}" =~ ^[Yy]$ ]]; then
-  info "Aborted — no changes made."
-  exit 0
+if [[ "${YES}" != true ]]; then
+  read -r -p "Remove all dev_env resources? [y/N] " CONFIRM
+  if [[ ! "${CONFIRM}" =~ ^[Yy]$ ]]; then
+    info "Aborted — no changes made."
+    exit 0
+  fi
 fi
 
 echo ""
 
 # ---------------------------------------------------------------------------
-# Uninstall dataspoke1-example
+# Uninstall dataspoke-example
 # ---------------------------------------------------------------------------
-if [[ -f "$SCRIPT_DIR/dataspoke1-example/uninstall.sh" ]]; then
-  info "Running dataspoke1-example/uninstall.sh..."
-  bash "$SCRIPT_DIR/dataspoke1-example/uninstall.sh"
+if [[ -f "$SCRIPT_DIR/dataspoke-example/uninstall.sh" ]]; then
+  info "Running dataspoke-example/uninstall.sh..."
+  bash "$SCRIPT_DIR/dataspoke-example/uninstall.sh"
 else
-  warn "dataspoke1-example/uninstall.sh not found — skipping."
+  warn "dataspoke-example/uninstall.sh not found — skipping."
 fi
 
 # ---------------------------------------------------------------------------
@@ -60,11 +75,14 @@ echo ""
 NAMESPACES=(
   "${DATASPOKE_KUBE_DATAHUB_NAMESPACE}"
   "${DATASPOKE_KUBE_DATASPOKE_NAMESPACE}"
-  "${DATASPOKE_KUBE_DATASPOKE_EXAMPLE_NAMESPACE}"
+  "${DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE}"
 )
 
-read -r -p "Delete namespaces (${NAMESPACES[*]})? [y/N] " CONFIRM_NS
-if [[ "${CONFIRM_NS}" =~ ^[Yy]$ ]]; then
+if [[ "${DELETE_NAMESPACES}" != true ]]; then
+  read -r -p "Delete namespaces (${NAMESPACES[*]})? [y/N] " CONFIRM_NS
+  [[ "${CONFIRM_NS}" =~ ^[Yy]$ ]] && DELETE_NAMESPACES=true
+fi
+if [[ "${DELETE_NAMESPACES}" == true ]]; then
   for NS in "${NAMESPACES[@]}"; do
     if kubectl get namespace "${NS}" >/dev/null 2>&1; then
       info "Deleting namespace '${NS}'..."

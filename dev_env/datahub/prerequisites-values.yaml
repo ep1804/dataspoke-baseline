@@ -1,83 +1,99 @@
 # DataHub prerequisites Helm values — local dev sizing
 # Chart: datahub/datahub-prerequisites version 0.2.1
-# Target cluster: 6 CPU / 16 GB RAM
+# Target cluster: 8 CPU / 14 GB RAM (minikube)
 # All components use replicaCount: 1 for minimal resource usage.
+# Total memory limits (prerequisites): ~3.3 GiB of ~7 GiB cluster-wide budget
 
-cp-kafka:
-  replicaCount: 1
-  resources:
-    requests:
-      cpu: "200m"
-      memory: "384Mi"
-    limits:
-      cpu: "1000m"
-      memory: "768Mi"
+# Bitnami Kafka (replaces cp-kafka)
+kafka:
+  enabled: true
+  broker:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "256Mi"
+      limits:
+        cpu: "1000m"
+        memory: "512Mi"
+    extraConfig: |
+      message.max.bytes=5242880
+      default.replication.factor=1
+      offsets.topic.replication.factor=1
+      transaction.state.log.replication.factor=1
+  kraft:
+    enabled: false
+  # Bitnami ZooKeeper (subchart of kafka)
+  zookeeper:
+    enabled: true
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
 
-cp-zookeeper:
-  replicaCount: 1
-  resources:
-    requests:
-      cpu: "50m"
-      memory: "128Mi"
-    limits:
-      cpu: "200m"
-      memory: "256Mi"
-
-cp-schema-registry:
-  replicaCount: 1
-  resources:
-    requests:
-      cpu: "50m"
-      memory: "128Mi"
-    limits:
-      cpu: "200m"
-      memory: "256Mi"
-
-elasticsearch:
-  replicaCount: 1
-  esJavaOpts: "-Xmx768m -Xms768m"
-  resources:
-    requests:
-      cpu: "200m"
-      memory: "512Mi"
-    limits:
-      cpu: "1000m"
-      memory: "1Gi"
-  persistence:
+# Confluent Platform is disabled (bitnami kafka used instead)
+cp-helm-charts:
+  enabled: false
+  cp-schema-registry:
     enabled: false
 
-mysql:
-  replicaCount: 1
+# Elasticsearch
+# ES needs ~512m JVM heap + ~1.5 GB off-heap (Lucene segment cache, network
+# buffers, plugin loading, index recovery).  2Gi OOM-killed during concurrent
+# startup with Kafka/MySQL; 2.5Gi gives stable headroom.
+elasticsearch:
+  enabled: true
+  replicas: 1
+  minimumMasterNodes: 1
+  antiAffinity: "soft"
+  clusterHealthCheckParams: "wait_for_status=yellow&timeout=1s"
+  esJavaOpts: "-Xmx512m -Xms512m"
   resources:
     requests:
-      cpu: "100m"
-      memory: "256Mi"
+      cpu: "200m"
+      memory: "1536Mi"
     limits:
-      cpu: "500m"
-      memory: "512Mi"
+      cpu: "1000m"
+      memory: "2560Mi"
+
+# Bitnami MySQL
+mysql:
+  enabled: true
   auth:
     existingSecret: "mysql-secrets"
-    # keys: mysql-root-password, mysql-password
-  persistence:
-    enabled: false
+    # Secret must contain keys: mysql-root-password, mysql-password
+  primary:
+    extraFlags: "--character-set-server=utf8mb4 --collation-server=utf8mb4_bin"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "768Mi"
+    persistence:
+      enabled: false
+    # Relaxed probes for resource-constrained dev cluster
+    startupProbe:
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 15
+    livenessProbe:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 5
+    readinessProbe:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 5
 
+# Neo4j disabled — using Elasticsearch as graph backend (upstream default)
 neo4j:
-  enabled: true
-  replicaCount: 1
-  resources:
-    requests:
-      cpu: "200m"
-      memory: "512Mi"
-    limits:
-      cpu: "1000m"
-      memory: "1Gi"
-  neo4j:
-    password:
-      secretRef: "neo4j-secrets"
-      secretKey: "neo4j-password"
-  volumes:
-    data:
-      mode: defaultStorageClass
-      defaultStorageClass:
-        requests:
-          storage: "10Gi"
+  enabled: false

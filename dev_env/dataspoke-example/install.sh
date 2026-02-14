@@ -4,11 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------------------------------------------------------------------------
-# Helper functions
+# Shared helpers
 # ---------------------------------------------------------------------------
-info()  { echo -e "\033[0;32m[INFO]\033[0m  $*"; }
-warn()  { echo -e "\033[0;33m[WARN]\033[0m  $*"; }
-error() { echo -e "\033[0;31m[ERROR]\033[0m $*" >&2; exit 1; }
+# shellcheck source=../lib/helpers.sh
+source "$SCRIPT_DIR/../lib/helpers.sh"
 
 # ---------------------------------------------------------------------------
 # Load configuration
@@ -19,10 +18,10 @@ fi
 source "$SCRIPT_DIR/../.env"
 
 echo ""
-echo "=== Installing dataspoke1-example ==="
+echo "=== Installing dataspoke-example ==="
 echo ""
 
-NS="${DATASPOKE_KUBE_DATASPOKE_EXAMPLE_NAMESPACE}"
+NS="${DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE}"
 
 # ---------------------------------------------------------------------------
 # Ensure namespace exists
@@ -43,11 +42,6 @@ kubectl apply -f "$SCRIPT_DIR/manifests/" --namespace "${NS}"
 # ---------------------------------------------------------------------------
 # Wait for deployments to be ready
 # ---------------------------------------------------------------------------
-info "Waiting for MySQL deployment to be ready (timeout: 3m)..."
-kubectl rollout status deployment/example-mysql \
-  --namespace "${NS}" \
-  --timeout=3m
-
 info "Waiting for PostgreSQL deployment to be ready (timeout: 3m)..."
 kubectl rollout status deployment/example-postgres \
   --namespace "${NS}" \
@@ -57,13 +51,9 @@ kubectl rollout status deployment/example-postgres \
 # Print connection info
 # ---------------------------------------------------------------------------
 echo ""
-info "dataspoke1-example installation complete."
+info "dataspoke-example installation complete."
 echo ""
-echo "Port-forward commands:"
-echo ""
-echo "  MySQL:"
-echo "  kubectl port-forward --namespace ${NS} svc/example-mysql 3306:3306"
-echo "  Connection: root / ExampleDev2024! — database: example_db"
+echo "Port-forward command:"
 echo ""
 echo "  PostgreSQL:"
 echo "  kubectl port-forward --namespace ${NS} svc/example-postgres 5432:5432"

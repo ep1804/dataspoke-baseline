@@ -1,6 +1,6 @@
 ---
 name: kubectl
-description: Manage the local DataHub/DataSpoke Kubernetes cluster. Use when the user asks to check pods, restart deployments, view logs, apply manifests, create or delete resources, or perform any kubectl/helm operation.
+description: Manage the local kubernetes cluster for development. Use when the user asks to check pods, restart deployments, view logs, apply manifests, create or delete resources, or perform any kubectl/helm operation.
 argument-hint: <operation>
 disable-model-invocation: true
 allowed-tools: Bash(kubectl *), Bash(helm *), Read
@@ -9,9 +9,10 @@ allowed-tools: Bash(kubectl *), Bash(helm *), Read
 ## Setup
 
 1. **Read cluster config**: Read `dev_env/.env` to get:
-   - `DATASPOKE_DEV_KUBE_CONTEXT`
-   - `DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE` (default: `datahub`)
-   - `DATASPOKE_DEV_KUBE_DATASPOKE_NAMESPACE` (default: `dataspoke`)
+   - `DATASPOKE_KUBE_CLUSTER` — kube context (e.g., `minikube`)
+   - `DATASPOKE_KUBE_DATAHUB_NAMESPACE` — DataHub namespace (e.g., `datahub-01`)
+   - `DATASPOKE_KUBE_DATASPOKE_NAMESPACE` — DataSpoke namespace (e.g., `dataspoke-team1`)
+   - `DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE` — Example sources namespace (e.g., `dummy-data1`)
 
 2. **Verify prerequisites**:
 ```bash

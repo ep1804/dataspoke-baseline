@@ -1,7 +1,7 @@
 # DataSpoke Local Development Environment
 
 A fully scripted local Kubernetes environment for developing and testing DataSpoke.
-Three namespaces are provisioned: `datahub1`, `dataspoke1`, and `dataspoke1-example`.
+Three namespaces are provisioned: `datahub-01`, `dataspoke-team1`, and `dummy-data1`.
 
 ## Prerequisites
 
@@ -11,13 +11,23 @@ Three namespaces are provisioned: `datahub1`, `dataspoke1`, and `dataspoke1-exam
 
 ## Quick Start
 
+### 0. If you use Claude Code
+
+Just run command: /dataspoke-dev-env-install
+
 ### 1. Configure your cluster
 
-Edit `dev_env/.env` to match your local cluster:
+Copy the example and edit to match your local cluster:
+
+```bash
+cp dev_env/.env.example dev_env/.env
+```
+
+Then edit `dev_env/.env`:
 
 ```bash
 # Set your local Kubernetes context
-DATASPOKE_KUBE_CLUSTER=docker-desktop
+DATASPOKE_KUBE_CLUSTER=minikube
 ```
 
 To list available contexts:
@@ -32,7 +42,7 @@ From the `dev_env/` directory:
 
 ```bash
 chmod +x install.sh uninstall.sh datahub/install.sh datahub/uninstall.sh \
-  dataspoke1-example/install.sh dataspoke1-example/uninstall.sh
+  dataspoke-example/install.sh dataspoke-example/uninstall.sh
 
 ./install.sh
 ```
@@ -42,9 +52,10 @@ This takes approximately 5-10 minutes on the first run while container images ar
 ### 3. Access the DataHub UI
 
 ```bash
+source dev_env/.env
 kubectl port-forward \
-  --namespace datahub1 \
-  $(kubectl get pods -n datahub1 -l 'app.kubernetes.io/name=datahub-frontend' \
+  --namespace $DATASPOKE_KUBE_DATAHUB_NAMESPACE \
+  $(kubectl get pods -n $DATASPOKE_KUBE_DATAHUB_NAMESPACE -l 'app.kubernetes.io/name=datahub-frontend' \
     -o jsonpath='{.items[0].metadata.name}') \
   9002:9002
 ```
@@ -53,35 +64,29 @@ Open http://localhost:9002 in your browser.
 
 Credentials: `datahub` / `datahub`
 
-### 4. Access example data sources
-
-Forward MySQL (example source):
-
-```bash
-kubectl port-forward \
-  --namespace dataspoke1-example \
-  svc/example-mysql 3306:3306
-```
+### 4. Access example data source
 
 Forward PostgreSQL (example source):
 
 ```bash
+source dev_env/.env
 kubectl port-forward \
-  --namespace dataspoke1-example \
+  --namespace $DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE \
   svc/example-postgres 5432:5432
 ```
 
-Credentials for both: `root` / `ExampleDev2024!` (database: `example_db`)
+Credentials: `postgres` / `ExampleDev2024!` (database: `example_db`)
 
 ## Verify Installation
 
 ```bash
+source dev_env/.env
 # Check all pods
-kubectl get pods -n datahub1
-kubectl get pods -n dataspoke1-example
+kubectl get pods -n $DATASPOKE_KUBE_DATAHUB_NAMESPACE
+kubectl get pods -n $DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE
 
 # Check Helm releases
-helm list -n datahub1
+helm list -n $DATASPOKE_KUBE_DATAHUB_NAMESPACE
 ```
 
 ## Uninstall
@@ -92,31 +97,30 @@ helm list -n datahub1
 
 You will be prompted before any destructive operation is taken.
 
+c.f. there's also Claude Code command: /dataspoke-dev-env-uninstall
+
 ## Namespace Architecture
 
 | Namespace | Purpose | Managed By |
 |-----------|---------|------------|
-| `datahub1` | DataHub platform + all backing services | `datahub/install.sh` via Helm |
-| `dataspoke1` | DataSpoke application (placeholder) | `install.sh` (namespace only) |
-| `dataspoke1-example` | Example MySQL + PostgreSQL for ingestion testing | `dataspoke1-example/install.sh` via kubectl |
+| `datahub-01` | DataHub platform + all backing services | `datahub/install.sh` via Helm |
+| `dataspoke-team1` | DataSpoke application (placeholder) | `install.sh` (namespace only) |
+| `dummy-data1` | Example PostgreSQL for ingestion testing | `dataspoke-example/install.sh` via kubectl |
 
 ## Resource Budget
 
-This environment targets <= 50% of a 6 CPU / 16 GB RAM cluster (~8 GB RAM total).
+This environment targets ~7.8 GiB memory limits on an 8 CPU / 14 GB RAM cluster (~55% utilization, ~4.7 GiB headroom for k8s system + burst). See `spec/DEV_ENV.md` for field-tested rationale per component.
 
 | Component | Namespace | Memory Limit |
 |-----------|-----------|-------------|
-| cp-kafka | datahub1 | 768 Mi |
-| cp-zookeeper | datahub1 | 256 Mi |
-| cp-schema-registry | datahub1 | 256 Mi |
-| elasticsearch | datahub1 | 1024 Mi |
-| mysql (prerequisites) | datahub1 | 512 Mi |
-| neo4j | datahub1 | 1024 Mi |
-| datahub-gms | datahub1 | 1536 Mi |
-| datahub-frontend | datahub1 | 768 Mi |
-| datahub-mae-consumer | datahub1 | 512 Mi |
-| datahub-mce-consumer | datahub1 | 512 Mi |
-| datahub-actions | datahub1 | 256 Mi |
-| example-mysql | dataspoke1-example | 256 Mi |
-| example-postgres | dataspoke1-example | 256 Mi |
-| **Total** | | **~7.7 Gi** |
+| kafka (bitnami) | datahub-01 | 512 Mi |
+| zookeeper (bitnami) | datahub-01 | 256 Mi |
+| elasticsearch | datahub-01 | 2560 Mi |
+| mysql (prerequisites) | datahub-01 | 768 Mi |
+| datahub-gms | datahub-01 | 1536 Mi |
+| datahub-frontend | datahub-01 | 768 Mi |
+| datahub-mae-consumer | datahub-01 | 512 Mi |
+| datahub-mce-consumer | datahub-01 | 512 Mi |
+| datahub-actions | datahub-01 | 256 Mi |
+| example-postgres | dummy-data1 | 256 Mi |
+| **Total** | | **~7.8 Gi** |

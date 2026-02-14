@@ -4,11 +4,62 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------------------------------------------------------------------------
-# Helper functions
+# Shared helpers
 # ---------------------------------------------------------------------------
-info()  { echo -e "\033[0;32m[INFO]\033[0m  $*"; }
-warn()  { echo -e "\033[0;33m[WARN]\033[0m  $*"; }
-error() { echo -e "\033[0;31m[ERROR]\033[0m $*" >&2; exit 1; }
+# shellcheck source=../lib/helpers.sh
+source "$SCRIPT_DIR/../lib/helpers.sh"
+
+wait_for_pod() {
+  local name="$1" ns="$2" timeout_secs="$3"
+  info "  Waiting for pod $name to be Ready (up to ${timeout_secs}s)..."
+  local elapsed=0
+  while (( elapsed < timeout_secs )); do
+    # kubectl wait fails instantly if pod is in CrashLoopBackOff, so we
+    # poll manually to tolerate transient restarts during startup.
+    local ready
+    ready=$(kubectl get "pod/$name" -n "$ns" \
+      -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+    if [[ "$ready" == "True" ]]; then
+      info "  Pod $name is Ready."
+      return 0
+    fi
+    if (( elapsed % 30 == 0 && elapsed > 0 )); then
+      local phase restarts
+      phase=$(kubectl get "pod/$name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+      restarts=$(kubectl get "pod/$name" -n "$ns" -o jsonpath='{.status.containerStatuses[0].restartCount}' 2>/dev/null || echo "?")
+      info "  [$name] ${elapsed}s — phase=$phase restarts=$restarts"
+    fi
+    sleep 10
+    (( elapsed += 10 ))
+  done
+  error "Pod $name not ready after ${timeout_secs}s"
+}
+
+wait_for_job() {
+  local name="$1" ns="$2" timeout_secs="$3"
+  info "  Waiting for job $name to complete (up to ${timeout_secs}s)..."
+  local elapsed=0
+  while (( elapsed < timeout_secs )); do
+    local phase
+    phase=$(kubectl get pod -l "job-name=$name" -n "$ns" \
+      -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "Pending")
+    if [[ "$phase" == "Succeeded" ]]; then
+      info "  Job $name completed."
+      return 0
+    elif [[ "$phase" == "Failed" ]]; then
+      error "Job $name failed. Check logs: kubectl logs -l job-name=$name -n $ns"
+    fi
+    # Print progress every 30s
+    if (( elapsed % 30 == 0 && elapsed > 0 )); then
+      local tail
+      tail=$(kubectl logs -l "job-name=$name" -n "$ns" --tail=1 2>/dev/null || echo "...")
+      info "  [$name] ${elapsed}s elapsed — ${tail}"
+    fi
+    sleep 10
+    (( elapsed += 10 ))
+  done
+  error "Job $name timed out after ${timeout_secs}s"
+}
 
 # ---------------------------------------------------------------------------
 # Load configuration
@@ -17,6 +68,8 @@ if [[ ! -f "$SCRIPT_DIR/../.env" ]]; then
   error ".env not found at $SCRIPT_DIR/../.env — run from dev_env/ and ensure .env exists."
 fi
 source "$SCRIPT_DIR/../.env"
+
+NS="${DATASPOKE_KUBE_DATAHUB_NAMESPACE}"
 
 echo ""
 echo "=== Installing DataHub ==="
@@ -51,65 +104,123 @@ fi
 # ---------------------------------------------------------------------------
 # Ensure namespace exists
 # ---------------------------------------------------------------------------
-if kubectl get namespace "${DATASPOKE_KUBE_DATAHUB_NAMESPACE}" >/dev/null 2>&1; then
-  info "Namespace '${DATASPOKE_KUBE_DATAHUB_NAMESPACE}' already exists."
+if kubectl get namespace "${NS}" >/dev/null 2>&1; then
+  info "Namespace '${NS}' already exists."
 else
-  info "Creating namespace '${DATASPOKE_KUBE_DATAHUB_NAMESPACE}'..."
-  kubectl create namespace "${DATASPOKE_KUBE_DATAHUB_NAMESPACE}"
+  info "Creating namespace '${NS}'..."
+  kubectl create namespace "${NS}"
 fi
 
 # ---------------------------------------------------------------------------
 # Create mysql-secrets (idempotent)
 # ---------------------------------------------------------------------------
-info "Creating mysql-secrets in namespace '${DATASPOKE_KUBE_DATAHUB_NAMESPACE}'..."
+info "Creating mysql-secrets in namespace '${NS}'..."
 kubectl create secret generic mysql-secrets \
-  --namespace "${DATASPOKE_KUBE_DATAHUB_NAMESPACE}" \
-  --from-literal=mysql-root-password="${DATASPOKE_MYSQL_ROOT_PASSWORD}" \
-  --from-literal=mysql-password="${DATASPOKE_MYSQL_PASSWORD}" \
+  --namespace "${NS}" \
+  --from-literal=mysql-root-password="${DATASPOKE_DEV_KUBE_DATAHUB_MYSQL_ROOT_PASSWORD}" \
+  --from-literal=mysql-password="${DATASPOKE_DEV_KUBE_DATAHUB_MYSQL_PASSWORD}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # ---------------------------------------------------------------------------
-# Create neo4j-secrets (idempotent)
+# Step 1: Install datahub-prerequisites (no --wait, we gate each component)
 # ---------------------------------------------------------------------------
-info "Creating neo4j-secrets in namespace '${DATASPOKE_KUBE_DATAHUB_NAMESPACE}'..."
-kubectl create secret generic neo4j-secrets \
-  --namespace "${DATASPOKE_KUBE_DATAHUB_NAMESPACE}" \
-  --from-literal=neo4j-password="${DATASPOKE_NEO4J_PASSWORD}" \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# ---------------------------------------------------------------------------
-# Install datahub-prerequisites
-# ---------------------------------------------------------------------------
-info "Installing datahub-prerequisites (version 0.2.1)..."
+PREREQS_VERSION="${DATASPOKE_DEV_KUBE_DATAHUB_PREREQUISITES_CHART_VERSION:-0.2.1}"
+info "Installing datahub-prerequisites (version ${PREREQS_VERSION})..."
 helm upgrade --install datahub-prerequisites datahub/datahub-prerequisites \
-  --version 0.2.1 \
-  --namespace "${DATASPOKE_KUBE_DATAHUB_NAMESPACE}" \
+  --version "${PREREQS_VERSION}" \
+  --namespace "${NS}" \
   --values "$SCRIPT_DIR/prerequisites-values.yaml" \
-  --timeout 5m \
-  --wait
+  --timeout 5m
 
 # ---------------------------------------------------------------------------
-# Install datahub
+# Step 2: Wait for each prerequisite sequentially
 # ---------------------------------------------------------------------------
-info "Installing datahub (version 0.8.3)..."
+info "Waiting for prerequisites to become ready (one by one)..."
+
+info "[1/4] MySQL..."
+wait_for_pod "datahub-prerequisites-mysql-0" "$NS" 180
+
+info "[2/4] Elasticsearch..."
+wait_for_pod "elasticsearch-master-0" "$NS" 300
+
+info "[3/4] ZooKeeper..."
+wait_for_pod "datahub-prerequisites-zookeeper-0" "$NS" 180
+
+info "[4/4] Kafka..."
+wait_for_pod "datahub-prerequisites-kafka-broker-0" "$NS" 300
+
+info "All prerequisites are ready."
+kubectl get pods -n "${NS}"
+
+# ---------------------------------------------------------------------------
+# Step 3: Install datahub WITHOUT --wait
+#   Helm's --wait/--timeout applies to pre-install hooks too, causing
+#   timeouts when datahub-system-update (a heavy JVM) takes 5-10 min.
+#   Instead, we install without --wait and poll for readiness ourselves.
+# ---------------------------------------------------------------------------
+DATAHUB_VERSION="${DATASPOKE_DEV_KUBE_DATAHUB_CHART_VERSION:-0.8.3}"
+info "Installing datahub (version ${DATAHUB_VERSION}) — no --wait, polling manually..."
 helm upgrade --install datahub datahub/datahub \
-  --version 0.8.3 \
-  --namespace "${DATASPOKE_KUBE_DATAHUB_NAMESPACE}" \
+  --version "${DATAHUB_VERSION}" \
+  --namespace "${NS}" \
   --values "$SCRIPT_DIR/values.yaml" \
-  --timeout 5m \
-  --wait
+  --timeout 15m
+
+# ---------------------------------------------------------------------------
+# Step 4: Wait for hook jobs to complete
+# ---------------------------------------------------------------------------
+info "Waiting for setup jobs and system-update..."
+
+# Short jobs: ES and MySQL setup (usually < 30s)
+wait_for_job "datahub-elasticsearch-setup-job" "$NS" 120
+wait_for_job "datahub-mysql-setup-job" "$NS" 120
+
+# Heavy job: system-update bootstraps all metadata (5-10 min on dev clusters)
+wait_for_job "datahub-system-update" "$NS" 600
+
+# ---------------------------------------------------------------------------
+# Step 5: Wait for DataHub service pods
+# ---------------------------------------------------------------------------
+info "Waiting for DataHub services to become ready..."
+
+wait_for_pod_by_label() {
+  local label="$1" ns="$2" timeout_secs="$3"
+  local name
+  name=$(kubectl get pod -l "$label" -n "$ns" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+  if [[ -z "$name" ]]; then
+    info "  No pod found with label $label yet, waiting..."
+    local waited=0
+    while (( waited < timeout_secs )); do
+      sleep 10; (( waited += 10 ))
+      name=$(kubectl get pod -l "$label" -n "$ns" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+      [[ -n "$name" ]] && break
+    done
+    [[ -z "$name" ]] && error "No pod found for label $label after ${timeout_secs}s"
+  fi
+  wait_for_pod "$name" "$ns" "$timeout_secs"
+}
+
+info "[1/3] GMS..."
+wait_for_pod_by_label "app.kubernetes.io/name=datahub-gms" "$NS" 600
+
+info "[2/3] Frontend..."
+wait_for_pod_by_label "app.kubernetes.io/name=datahub-frontend" "$NS" 600
+
+info "[3/3] Actions..."
+wait_for_pod_by_label "app.kubernetes.io/name=acryl-datahub-actions" "$NS" 300
 
 # ---------------------------------------------------------------------------
 # Print access instructions
 # ---------------------------------------------------------------------------
 echo ""
 info "DataHub installation complete."
+kubectl get pods -n "${NS}"
 echo ""
 echo "Access the DataHub UI with:"
 echo ""
 echo "  kubectl port-forward \\"
-echo "    --namespace ${DATASPOKE_KUBE_DATAHUB_NAMESPACE} \\"
-echo "    \$(kubectl get pods -n ${DATASPOKE_KUBE_DATAHUB_NAMESPACE} \\"
+echo "    --namespace ${NS} \\"
+echo "    \$(kubectl get pods -n ${NS} \\"
 echo "      -l 'app.kubernetes.io/name=datahub-frontend' \\"
 echo "      -o jsonpath='{.items[0].metadata.name}') \\"
 echo "    9002:9002"

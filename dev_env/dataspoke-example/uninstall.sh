@@ -4,11 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------------------------------------------------------------------------
-# Helper functions
+# Shared helpers
 # ---------------------------------------------------------------------------
-info()  { echo -e "\033[0;32m[INFO]\033[0m  $*"; }
-warn()  { echo -e "\033[0;33m[WARN]\033[0m  $*"; }
-error() { echo -e "\033[0;31m[ERROR]\033[0m $*" >&2; exit 1; }
+# shellcheck source=../lib/helpers.sh
+source "$SCRIPT_DIR/../lib/helpers.sh"
 
 # ---------------------------------------------------------------------------
 # Load configuration
@@ -19,10 +18,10 @@ fi
 source "$SCRIPT_DIR/../.env"
 
 echo ""
-echo "=== Uninstalling dataspoke1-example ==="
+echo "=== Uninstalling dataspoke-example ==="
 echo ""
 
-NS="${DATASPOKE_KUBE_DATASPOKE_EXAMPLE_NAMESPACE}"
+NS="${DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE}"
 
 # ---------------------------------------------------------------------------
 # Delete manifests
@@ -35,5 +34,5 @@ else
 fi
 
 echo ""
-info "dataspoke1-example resources removed."
+info "dataspoke-example resources removed."
 echo ""
