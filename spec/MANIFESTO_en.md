@@ -1,77 +1,70 @@
-# Data Spoke: The Active Governance Engine for DataHub
+# DataSpoke Baseline
 
-Data Spoke is a Governance Sidecar that transforms DataHub from a static metadata repository into a dynamic action engine. It leverages DataHub as a headless backend to implement complex business logic and intelligent automation.
+AI Data Catalog Starter: Productized Scaffold for Custom Solutions
 
-Data Spoke eliminates operational bottlenecks for data engineers (Manual Sync, Quality Blindspots) while providing a data context verification layer for AI Agents.
+![DataSpoke MANIFESTO](../assets/MANIFESTO_image.jpg)
 
 ---
 
 ## 1. Problem Statement
 
-Limitations of generic metadata platforms:
+### New Requirements for Data Catalogs in the AI Era
 
-### Conventional Pipeline Operations
-- **Rigid Ingestion**: Incomplete data synchronization due to standard connector limitations
-- **Static Metadata**: Only tracks data flow without anomaly detection capabilities
-- **UI Inflexibility**: Generic interface unable to accommodate organization-specific workflows
+As LLMs and AI Agents become deeply embedded in real-world workflows, data catalogs must go beyond simple metadata repositories and support two critical capabilities:
 
-### AI Agent Utilization
-- **Discovery Gap**: Keyword-based search lacking context-aware natural language exploration
-- **Verification Loop**: No feedback mechanism for impact and quality validation during pipeline generation
-- **Unstructured Access**: Metadata structure not optimized for RAG applications
+* **Online Verifier**: Real-time validation of pipeline development outputs within AI coding loops.
+* **Self-Purification**: AI-driven design of data ontologies, with autonomous consistency checks and corrections.
 
-**Data Spoke is an intelligent extension layer that bridges these two domains.**
+### The Limits of Monolithic Catalogs
 
----
+Platforms like DataHub, Dataplex, and OpenMetadata offer vast feature sets, yet their real-world adoption remains low. The root cause: trying to serve everyone, they end up optimized for no one.
 
-## 2. Core Capabilities
+* **Diverging user needs**: Data engineers want anomaly signals in pipelines; analysts want trusted tables fast; security teams want PII visibility. Despite having different purposes, everyone is forced into a single view.
+* **Functional gaps**: Legacy and unstructured data sources outside standard connectors, quality checks stuck at static validation — the actual demands of operations are far more specific than what existing platforms can accommodate.
 
-### Infrastructure Sync
-- **Ingestion Management**: Centralized configuration management and execution history tracking
-- **Custom Sync**: Flexible REST API-based synchronization (Source Repository, SQL Engine Log, unstructured data from Slack processed via LLM)
-- **Headless Orchestration**: Custom workflow construction through independent storage and API
+### Goals
 
-### Observability & Quality
-- **Python Quality Model**: ML-based time series anomaly detection using Prophet/Isolation Forest
-- **Unified Dashboard**: Integrated view of DataHub standard metrics and custom validation results
+This project pursues two goals:
 
-### Metadata Health
-- **Documentation Auditor**: Automated scanning for missing or erroneous metadata with owner notifications
+1. **Baseline Product**: Define and implement the essential features any AI-era data catalog must have.
+2. **Scaffold for AI Coding**: Provide sufficient conventions, development specs, and Claude Code utilities so that an organization-specific dedicated catalog can be built with AI in a short time.
 
-### AI-Ready Knowledge Base
-- **Vectorized Metadata**: Embedding-based search through real-time VectorDB synchronization
-- **Semantic Search API**: Natural language-based metadata search interface
+The name **DataSpoke** comes from treating the existing DataHub as the Hub, and defining each specialized extension tailored to an organization's needs as a Spoke — like spokes on a wheel.
+
+### What This Repository Contains
+
+* **Baseline Product**: Reference implementation of core features including Online Verifier and Self-Purification.
+* **Claude Code Utilities**: Command, Skill, Subagent, and Agent Team configurations — an environment ready to run the AI coding loop immediately.
+* **Development Spec**: Dev environment setup, Hub-Spoke API contracts, detailed feature specs, and architecture documentation.
 
 ---
 
-## 3. Key Use Cases
+## 2. Feature Set
 
-### AI Pipeline Development
-AI Agents automatically verify context and guideline compliance through Data Spoke during pipeline creation
-- Context Grounding: Avoidance of quality-issue tables with alternative recommendations
-- Autonomous Verification: Real-time validation of internal standards (documentation, naming conventions)
+### Ingestion
 
-### Predictive SLA Management
-Early detection of anomaly patterns based on time series analysis (e.g., 20% drop in volume compared to typical Monday morning)
+* **Python-based Custom Ingestion**: Flexible access to legacy and unstructured data sources.
+* **Management & Orchestration**: Centralized ingestion configuration with its own storage, APIs, and workflow engine (Airflow or Temporal).
 
-### Semantic Data Discovery
-Context-aware search based on natural language queries (e.g., "Q1 ad logs with PII masking and high reliability")
+### Quality Control
 
-### Metadata Health Monitoring
-Departmental metadata quality indexing based on Documentation Score with improvement initiatives
+* **Python-based Quality Model**: Advanced quality models including ML-based time series anomaly detection.
 
----
+### Self-Purifier
 
-## 4. Architecture: Hub-and-Spoke Model
+* **Documentation Auditor**: Automated scan for metadata errors with Owner notifications.
+* **Health Score Dashboard**: Tracks documentation scores and data quality status per team.
 
-Data Spoke maintains loose coupling with DataHub while serving as an extension layer that creates tangible value.
+### Knowledge Base & Verifier
 
-- **The Hub (DataHub GMS)**: Metadata persistence and standard schema management (Single Source of Truth)
-- **The Spoke (Data Spoke)**: Business logic, VectorDB caching, time series analysis, and custom UI layer
-- **Communication**: Bidirectional communication via GraphQL/REST API and real-time event subscription via Kafka (MCE/MAE)
+* **Semantic Search API**: Natural language search interface optimized for RAG (Retrieval-Augmented Generation).
+* **Context Verification API**: Real-time quality validation of data produced by AI agents during coding loops.
 
 ---
 
-## Manifesto
+## 3. Architecture
 
-> "Beyond storing metadata, we make it actionable. Data Spoke provides engineers with precise control and AI Agents with accurate context, ensuring data reliability in the age of automation."
+DataSpoke is a **sidecar application** that integrates with DataHub while remaining independently deployable.
+
+* **The Hub (DataHub GMS)**: Single Source of Truth for metadata. Manages metadata persistence and standard schemas; communicates bidirectionally with DataSpoke via GraphQL/REST API and Kafka.
+* **The Spoke (DataSpoke)**: Handles the business logic and dedicated UX layer that Hub does not provide. Built on FastAPI and Next.js, with its own Orchestration, and optionally its own VectorDB and analytics infrastructure as needed.
