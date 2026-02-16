@@ -1,7 +1,7 @@
-# Data Spoke: System Architecture
+# DataSpoke: System Architecture
 
-> **Document Status**: Architecture Specification v0.1
-> This document defines the high-level architecture, technology choices, and design decisions for the Data Spoke system.
+> **Document Status**: Architecture Specification v0.2
+> This document defines the high-level architecture, technology choices, and design decisions for the DataSpoke system.
 
 ---
 
@@ -24,11 +24,11 @@
 
 ### Hub-and-Spoke Model
 
-Data Spoke implements a **loosely coupled architecture** with DataHub, maintaining separation of concerns while enabling seamless integration.
+DataSpoke implements a **loosely coupled architecture** with DataHub, maintaining separation of concerns while enabling seamless integration.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Data Spoke System                         │
+│                        DataSpoke System                          │
 │                                                                   │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
 │  │   Frontend   │◄───┤   API Layer  │◄───┤   Backend    │      │
@@ -63,11 +63,11 @@ Data Spoke implements a **loosely coupled architecture** with DataHub, maintaini
 
 ### DataHub Deployment Model
 
-**Assumption**: DataHub is deployed and managed **separately** from Data Spoke
+**Assumption**: DataHub is deployed and managed **separately** from DataSpoke
 
 ```
 ┌─────────────────────────┐         ┌─────────────────────────┐
-│   Data Spoke Stack      │         │   DataHub Instance      │
+│   DataSpoke Stack       │         │   DataHub Instance      │
 │   (This Project)        │◄────────┤   (External)            │
 │                         │  API    │                         │
 │   - Frontend            │  Events │   - GMS                 │
@@ -79,7 +79,7 @@ Data Spoke implements a **loosely coupled architecture** with DataHub, maintaini
 ```
 
 **Rationale**:
-1. Data Spoke is a **sidecar extension**, not a DataHub replacement
+1. DataSpoke is a **sidecar extension**, not a DataHub replacement
 2. Enterprises typically have existing DataHub installations
 3. Loose coupling enables independent deployment and evolution
 4. Clear separation of responsibilities and ownership
@@ -92,27 +92,21 @@ datahub:
   kafka_brokers: "datahub-kafka-1:9092,datahub-kafka-2:9092"
 ```
 
-**Development/Testing Only**:
-For local development and CI/CD testing, a bundled DataHub can be spun up via `docker-compose`:
-```yaml
-# docker-compose.dev.yml
-services:
-  datahub-gms:
-    image: acryldata/datahub-gms:latest
-    # ... minimal config for testing
+**Development / Testing**:
+For local development and CI/CD testing, DataHub is provisioned via Kubernetes + Helm using the scripts in `dev_env/`:
+```bash
+# Install DataHub + DataSpoke locally (first run: 5–10 min)
+cd dev_env && ./install.sh
 
-  data-spoke-api:
-    build: ./src/api
-    environment:
-      DATAHUB_GMS_URL: "http://datahub-gms:8080"
+# Settings (cluster name, namespaces, chart versions) live in dev_env/.env
 ```
 
-**Note**: Bundled DataHub is **NOT supported for production** deployments.
+**Note**: The bundled dev environment is **NOT supported for production** deployments.
 
 ### Key Architectural Tenets
 
 1. **Separation of Concerns**: Frontend, API, and Backend are strictly separated
-2. **Loose Coupling**: DataHub acts as SSOT; Data Spoke extends without modifying core
+2. **Loose Coupling**: DataHub acts as SSOT; DataSpoke extends without modifying core
 3. **Event-Driven**: Real-time synchronization via Kafka message streams
 4. **API-First**: Standalone API documentation facilitates AI agent integration
 5. **Cloud-Native**: Kubernetes-ready with containerized deployments
@@ -141,7 +135,9 @@ services:
 ┌─────────────────▼───────────────────────────┐
 │ Business Logic Layer (Backend)               │
 │ - FastAPI application                        │
-│ - Service layer (ingestion, quality, search) │
+│ - Feature services: Ingestion, Quality       │
+│   Control, Self-Purifier, Knowledge Base     │
+│   & Verifier                                 │
 │ - ML models (Prophet, Isolation Forest)      │
 └─────────────────┬───────────────────────────┘
                   │
@@ -168,11 +164,11 @@ API documentation exists as **standalone artifacts** in a separate directory:
 
 **Write Operations**:
 - DataHub Python SDK (`acryl-datahub`) for metadata ingestion
-- Custom aspects for Data Spoke-specific metadata
+- Custom aspects for DataSpoke-specific metadata
 
 **Boundary**:
 - DataHub = Source of truth for metadata persistence
-- Data Spoke = Computational layer for analysis, validation, and enrichment
+- DataSpoke = Computational layer for analysis, validation, and enrichment
 
 ---
 
@@ -188,8 +184,9 @@ src/frontend/
 ├── app/                    # Next.js app directory
 │   ├── dashboard/          # Main dashboard views
 │   ├── lineage/            # Lineage visualization
-│   ├── quality/            # Quality monitoring UI
-│   └── search/             # Semantic search interface
+│   ├── quality/            # Quality Control UI
+│   ├── self-purifier/      # Self-Purifier (health scores, auditor)
+│   └── search/             # Knowledge Base & Verifier UI
 ├── components/             # Reusable UI components
 │   ├── charts/             # Highcharts wrappers
 │   ├── tables/             # Data grid components
@@ -216,9 +213,11 @@ src/frontend/
 src/api/
 ├── routers/                # API endpoint definitions
 │   ├── ingestion.py        # Ingestion management endpoints
-│   ├── quality.py          # Quality monitoring endpoints
-│   ├── search.py           # Semantic search endpoints
-│   └── health.py           # Health check & system status
+│   ├── quality.py          # Quality Control endpoints
+│   ├── self_purifier.py    # Self-Purifier endpoints (health scores, auditor)
+│   ├── knowledge_base.py   # Semantic Search endpoints
+│   ├── verification.py     # Context Verification API (Online Verifier)
+│   └── system.py           # System health check & status
 ├── schemas/                # Pydantic models
 │   ├── requests/           # Request validation schemas
 │   └── responses/          # Response serialization schemas
@@ -239,27 +238,35 @@ src/api/
 
 **Technology**: Python 3.11+ (FastAPI framework)
 
-**Core Services**:
+**Feature services mirror the four manifesto feature groups:**
 
 ```
 src/backend/
 ├── services/
-│   ├── ingestion/          # Custom data source synchronization
-│   │   ├── connectors/     # Source-specific connectors
-│   │   ├── schedulers/     # Ingestion scheduling logic
-│   │   └── transformers/   # Data transformation pipelines
-│   ├── quality/            # Data quality analysis
-│   │   ├── models/         # ML models (Prophet, IF, etc.)
-│   │   ├── rules/          # Rule-based validation
-│   │   └── anomaly.py      # Anomaly detection engine
-│   ├── search/             # Semantic search service
-│   │   ├── embeddings/     # Text embedding generation
-│   │   ├── indexing/       # Vector DB indexing
-│   │   └── ranking.py      # Search result ranking
-│   └── metadata/           # Metadata health monitoring
-│       ├── auditor.py      # Documentation auditing
-│       ├── scoring.py      # Health score calculation
-│       └── alerts.py       # Alerting and notifications
+│   ├── ingestion/              # [Ingestion] Custom data source synchronization
+│   │   ├── connectors/         # Source-specific connectors
+│   │   ├── schedulers/         # Ingestion scheduling logic
+│   │   └── transformers/       # Data transformation pipelines
+│   │
+│   ├── quality/                # [Quality Control] Data quality analysis
+│   │   ├── models/             # ML models (Prophet, Isolation Forest, etc.)
+│   │   ├── rules/              # Rule-based validation
+│   │   └── anomaly.py          # Anomaly detection engine
+│   │
+│   ├── self_purifier/          # [Self-Purifier] Metadata health & ontology
+│   │   ├── auditor.py          # Documentation Auditor — scans for metadata errors
+│   │   ├── scoring.py          # Health Score calculation per entity / team
+│   │   └── alerts.py           # Owner notifications and digest alerts
+│   │
+│   └── knowledge_base/         # [Knowledge Base & Verifier]
+│       ├── semantic_search/    # Semantic Search API
+│       │   ├── embeddings/     # Text embedding generation
+│       │   ├── indexing/       # Vector DB indexing
+│       │   └── ranking.py      # Search result ranking
+│       └── context_verifier/   # Context Verification API (Online Verifier)
+│           ├── verifier.py     # Real-time pipeline output validation
+│           └── context.py      # Context enrichment from Knowledge Base
+│
 ├── models/                 # Domain models
 ├── repositories/           # Data access layer
 ├── utils/                  # Shared utilities
@@ -276,7 +283,7 @@ src/backend/
 
 #### 1. Vector Database (Qdrant)
 
-**Purpose**: Semantic search over metadata
+**Purpose**: Semantic search over metadata (Knowledge Base & Verifier feature group)
 
 **Schema**:
 ```python
@@ -304,24 +311,24 @@ src/backend/
 **Topics**:
 - `datahub.MetadataChangeEvent_v1`: DataHub metadata changes
 - `datahub.MetadataAuditEvent_v1`: DataHub audit events
-- `dataspoke.quality.alerts`: Quality issue notifications
+- `dataspoke.quality.alerts`: Quality Control issue notifications
 - `dataspoke.ingestion.status`: Ingestion job status updates
 
 **Consumer Groups**:
-- `dataspoke-vector-sync`: Updates vector DB on metadata changes
-- `dataspoke-quality-monitor`: Triggers quality checks on data updates
-- `dataspoke-notification`: Sends alerts to users
+- `dataspoke-vector-sync`: Updates vector DB on metadata changes (Knowledge Base)
+- `dataspoke-quality-monitor`: Triggers quality checks on data updates (Quality Control)
+- `dataspoke-notification`: Sends alerts to owners (Self-Purifier)
 
 #### 3. Operational Database (PostgreSQL)
 
-**Purpose**: Store Data Spoke-specific operational data
+**Purpose**: Store DataSpoke-specific operational data
 
 **Tables**:
 - `ingestion_configs`: Custom ingestion configurations
 - `ingestion_runs`: Execution history and status
 - `quality_rules`: Custom quality rule definitions
 - `quality_results`: Quality check results over time
-- `health_scores`: Metadata health scores by entity
+- `health_scores`: Metadata health scores by entity (Self-Purifier)
 - `user_preferences`: User settings and notifications
 
 #### 4. Cache Layer (Redis)
@@ -340,20 +347,20 @@ src/backend/
 
 **Workflows**:
 ```
-workflows/
+src/workflows/
 ├── ingestion/
-│   ├── scheduled_sync.py      # Periodic DataHub sync
-│   ├── custom_source_sync.py  # Custom connector execution
-│   └── backfill.py             # Historical data backfill
+│   ├── scheduled_sync.py       # [Ingestion] Periodic DataHub sync
+│   ├── custom_source_sync.py   # [Ingestion] Custom connector execution
+│   └── backfill.py             # [Ingestion] Historical data backfill
 ├── quality/
-│   ├── anomaly_detection.py   # Run ML models on datasets
-│   ├── rule_validation.py     # Execute quality rules
-│   └── health_scoring.py      # Calculate health scores
-├── search/
-│   ├── embedding_generation.py # Generate embeddings
-│   └── index_maintenance.py    # Vector DB maintenance
+│   ├── anomaly_detection.py    # [Quality Control] Run ML models on datasets
+│   ├── rule_validation.py      # [Quality Control] Execute quality rules
+│   └── health_scoring.py       # [Self-Purifier] Calculate metadata health scores
+├── knowledge_base/
+│   ├── embedding_generation.py # [Knowledge Base] Generate embeddings
+│   └── index_maintenance.py    # [Knowledge Base] Vector DB maintenance
 └── notifications/
-    └── digest_sender.py        # Send daily/weekly digests
+    └── digest_sender.py        # [Self-Purifier] Send daily/weekly owner digests
 ```
 
 **Why Temporal over Airflow**:
@@ -413,7 +420,7 @@ workflows/
              │
              ▼
 ┌────────────────────────────────────────────────────────────┐
-│ Data Spoke: Custom Ingestion Service                        │
+│ DataSpoke: Ingestion Service                                │
 │                                                              │
 │  1. Extract data from sources                               │
 │  2. Transform to DataHub metadata format                    │
@@ -430,16 +437,16 @@ workflows/
              │ Kafka: MCE/MAE
              ▼
 ┌────────────────────────────────────────────────────────────┐
-│ Data Spoke: Event Consumers                                 │
+│ DataSpoke: Event Consumers                                  │
 │                                                              │
 │  ┌─────────────────┐   ┌─────────────────┐                │
-│  │ Vector DB Sync  │   │ Quality Monitor │                │
-│  │ - Update vectors│   │ - Trigger checks│                │
+│  │ Knowledge Base  │   │ Quality Control │                │
+│  │ Vector DB Sync  │   │ Anomaly Monitor │                │
 │  └─────────────────┘   └─────────────────┘                │
 └────────────────────────────────────────────────────────────┘
 ```
 
-### 2. Semantic Search Flow
+### 2. Knowledge Base: Semantic Search Flow
 
 ```
 User Query: "Find PII tables used by marketing"
@@ -451,14 +458,14 @@ User Query: "Find PII tables used by marketing"
               │ REST API
               ▼
 ┌─────────────────────────────────────────┐
-│ API Layer: /search/semantic             │
+│ API Layer: /knowledge-base/search       │
 │  - Validate query                        │
 │  - Extract filters                       │
 └─────────────┬───────────────────────────┘
               │
               ▼
 ┌─────────────────────────────────────────┐
-│ Backend: Search Service                  │
+│ Backend: Knowledge Base Service          │
 │  1. Generate query embedding (LLM)       │
 │  2. Vector similarity search (Qdrant)    │
 │  3. Apply filters (tags, ownership)      │
@@ -472,7 +479,38 @@ User Query: "Find PII tables used by marketing"
 └─────────────────────────────────────────┘
 ```
 
-### 3. Quality Monitoring Flow
+### 3. Knowledge Base: Context Verification Flow (Online Verifier)
+
+```
+AI Agent: pipeline output to verify
+      │
+      ▼
+┌─────────────────────────────────────────┐
+│ API Layer: /verification/context        │
+│  - Validate request schema               │
+│  - Authenticate AI agent caller          │
+└─────────────┬───────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────┐
+│ Backend: Context Verifier Service        │
+│  1. Retrieve entity context (Knowledge   │
+│     Base + DataHub GraphQL)              │
+│  2. Check data quality status            │
+│  3. Validate schema / lineage            │
+│  4. Return verification result +         │
+│     recommendations                     │
+└─────────────┬───────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────┐
+│ Verification Result:                    │
+│   status, issues, recommendations,     │
+│   alternative_entities                  │
+└─────────────────────────────────────────┘
+```
+
+### 4. Quality Control Flow
 
 ```
 ┌─────────────────────────────────────────┐
@@ -508,7 +546,7 @@ User Query: "Find PII tables used by marketing"
 └─────────────────────────────────────────┘
 ```
 
-### 4. DataHub Integration Patterns
+### 5. DataHub Integration Patterns
 
 #### Pattern A: Read-Only Queries
 ```python
@@ -550,7 +588,7 @@ for message in consumer:
 **Assumption**: DataHub exists in a separate namespace or cluster
 
 ```yaml
-# Data Spoke namespace only
+# DataSpoke namespace only
 Namespace: dataspoke
 
 Deployments:
@@ -577,7 +615,7 @@ Deployments:
     - Persistent Volume: 100Gi
     - Resources: 4Gi memory, 2 CPU
 
-  - postgresql (Data Spoke operational DB)
+  - postgresql (DataSpoke operational DB)
     - StatefulSet
     - Persistent Volume: 50Gi
     - Resources: 2Gi memory, 1 CPU
@@ -614,7 +652,7 @@ ConfigMap:
 **Resource Estimate**: ~20 GB memory, ~10 CPU cores
 
 **Network Requirements**:
-- Data Spoke namespace must have network access to DataHub namespace
+- DataSpoke namespace must have network access to DataHub namespace
 - Configure NetworkPolicy to allow traffic between namespaces if using strict policies
 
 ### Cloud Deployment Options
@@ -692,6 +730,10 @@ dataspoke/
 │   │
 │   ├── backend/                # Backend services
 │   │   ├── services/
+│   │   │   ├── ingestion/
+│   │   │   ├── quality/
+│   │   │   ├── self_purifier/
+│   │   │   └── knowledge_base/
 │   │   ├── models/
 │   │   ├── repositories/
 │   │   └── config.py
@@ -699,6 +741,7 @@ dataspoke/
 │   ├── workflows/              # Temporal workflows
 │   │   ├── ingestion/
 │   │   ├── quality/
+│   │   ├── knowledge_base/
 │   │   └── notifications/
 │   │
 │   └── shared/                 # Shared utilities
@@ -724,7 +767,6 @@ dataspoke/
 │   ├── staging.yaml
 │   └── production.yaml
 │
-├── docker-compose.yml          # Local development (includes DataHub for testing)
 ├── Makefile                    # Common commands
 ├── pyproject.toml              # Python dependencies
 ├── package.json                # Node dependencies (root)
@@ -870,7 +912,9 @@ async def verify_token(credentials: HTTPBearer = Depends(security)):
 
 ---
 
-## Monitoring & Observability
+## Infrastructure Observability
+
+> **Note**: This section covers *system-level* infrastructure observability (metrics, logs, traces). This is distinct from the **Self-Purifier** feature group, which monitors *metadata health scores* and *data quality* at the data catalog level.
 
 ### Metrics (Prometheus)
 
@@ -936,27 +980,32 @@ Distributed tracing:
 
 ---
 
-## Migration & Integration
+## Implementation Phases
 
-### Phase 1: Standalone Deployment
-- Deploy Data Spoke alongside existing DataHub
+### Phase 1: Foundation & Hub Integration
+- Deploy DataSpoke alongside existing DataHub
 - Configure Kafka consumer for DataHub events
-- Minimal changes to DataHub configuration
+- Establish Hub-Spoke API contracts
 
-### Phase 2: Custom Ingestion
-- Develop custom connectors
-- Migrate from manual processes to Data Spoke
-- Integrate with existing data sources
+### Phase 2: Ingestion
+- Develop custom connectors for legacy and unstructured sources
+- Implement Management & Orchestration (Temporal workflows)
+- Migrate from manual ingestion processes to DataSpoke
 
-### Phase 3: Quality Automation
-- Deploy ML models for anomaly detection
+### Phase 3: Quality Control
+- Deploy ML models for anomaly detection (Prophet, Isolation Forest)
 - Configure alerting rules
 - Integrate with incident management (PagerDuty, Slack)
 
-### Phase 4: Semantic Search
-- Build vector embeddings for all metadata
-- Train ranking models
-- Roll out to users incrementally
+### Phase 4: Knowledge Base & Verifier
+- Build vector embeddings for all metadata (Semantic Search API)
+- Implement Context Verification API (Online Verifier for AI coding loops)
+- Roll out to users and AI agent integrations incrementally
+
+### Phase 5: Self-Purifier
+- Deploy Documentation Auditor (automated metadata error scanning)
+- Launch Health Score Dashboard (per-team scoring and trend tracking)
+- Implement AI-driven ontology consistency checks and corrections
 
 ---
 
@@ -965,11 +1014,11 @@ Distributed tracing:
 ### Useful Commands
 
 ```bash
-# Local development
-make dev-up               # Start all services locally
-make dev-down             # Stop all services
-make test                 # Run all tests
-make lint                 # Run linters
+# Local development (Kubernetes + Helm)
+cd dev_env && ./install.sh    # Start all services locally
+cd dev_env && ./uninstall.sh  # Stop all services
+make test                     # Run all tests
+make lint                     # Run linters
 
 # Docker builds
 make build-frontend       # Build frontend image

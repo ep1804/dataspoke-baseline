@@ -1,33 +1,45 @@
-# Data Spoke: Detailed Use Case Scenarios
+# DataSpoke: Detailed Use Case Scenarios
 
 > **Note on Document Purpose**
-> This document presents conceptual scenarios for ideation and vision alignment. These use cases illustrate the intended capabilities and value propositions of Data Spoke, but are not implementation specifications or technical requirements. The scenarios demonstrate aspirational workflows to guide product development and stakeholder discussions. Actual implementation details, technical architecture, and feature prioritization will be defined in separate technical specification documents.
+> This document presents conceptual scenarios for ideation and vision alignment. These use cases illustrate the intended capabilities and value propositions of DataSpoke, but are not implementation specifications or technical requirements. The scenarios demonstrate aspirational workflows to guide product development and stakeholder discussions. Actual implementation details, technical architecture, and feature prioritization will be defined in separate technical specification documents.
 
-This document provides detailed, real-world scenarios demonstrating how Data Spoke enhances DataHub capabilities across four key domains.
+This document provides detailed, real-world scenarios demonstrating how DataSpoke enhances DataHub capabilities across its four feature groups.
 
 ---
 
-## Use Case 1: AI Pipeline Development with Context Verification
+## Feature Group Mapping
+
+| Use Case | Feature Group | Sub-feature |
+|----------|--------------|-------------|
+| [Use Case 1: Online Verifier — AI Pipeline Context Verification](#use-case-1-online-verifier--ai-pipeline-context-verification) | Knowledge Base & Verifier | Context Verification API |
+| [Use Case 2: Quality Control — Predictive SLA Management](#use-case-2-quality-control--predictive-sla-management) | Quality Control | Python-based Quality Model |
+| [Use Case 3: Knowledge Base — Semantic Data Discovery](#use-case-3-knowledge-base--semantic-data-discovery) | Knowledge Base & Verifier | Semantic Search API |
+| [Use Case 4: Self-Purifier — Metadata Health Monitoring](#use-case-4-self-purifier--metadata-health-monitoring) | Self-Purifier | Documentation Auditor + Health Score Dashboard |
+| [Use Case 5: Self-Purification — AI-Driven Ontology Design](#use-case-5-self-purification--ai-driven-ontology-design) | Self-Purifier | AI-driven ontology consistency checks & corrections |
+
+---
+
+## Use Case 1: Online Verifier — AI Pipeline Context Verification
 
 ### Scenario: Building a Customer Churn Prediction Pipeline
 
 **Background:**
 A data scientist requests an AI Agent to create a new pipeline: "Build a daily customer churn prediction pipeline using user activity and payment data."
 
-#### Without Data Spoke
+#### Without DataSpoke
 The AI Agent would:
 1. Search DataHub for "user" and "payment" tables
 2. Select tables based on naming conventions alone
 3. Generate code without understanding data quality or usage patterns
 4. Deploy a pipeline that might use deprecated or unreliable data sources
 
-#### With Data Spoke
+#### With DataSpoke
 
 **Step 1: Semantic Discovery**
 ```
 AI Agent Query: "Find user activity and payment tables suitable for ML training"
 
-Data Spoke Response:
+DataSpoke Response:
 - users.activity_events (✓ High Quality Score: 95)
   - Last refreshed: 2 hours ago
   - Data completeness: 99.8%
@@ -44,10 +56,10 @@ Data Spoke Response:
   - Certified for ML use
 ```
 
-**Step 2: Context Grounding**
+**Step 2: Context Verification**
 ```python
-# AI Agent receives enriched context
-data_spoke.get_table_context("users.activity_logs")
+# AI Agent calls the Context Verification API
+dataspoke.verification.verify_context("users.activity_logs")
 
 Response:
 {
@@ -61,13 +73,13 @@ Response:
       "recommendation": "Use users.activity_events instead"
     }
   ],
-  "alternative_tables": ["users.activity_events"],
+  "alternative_entities": ["users.activity_events"],
   "blocking_issues": ["ongoing_investigation"]
 }
 ```
 
 **Step 3: Autonomous Verification**
-Before deployment, Data Spoke validates the generated pipeline:
+Before deployment, DataSpoke validates the generated pipeline:
 
 ```yaml
 Pipeline: customer_churn_prediction_v1
@@ -111,7 +123,7 @@ The AI Agent deploys the pipeline with:
 
 ---
 
-## Use Case 2: Predictive SLA Management
+## Use Case 2: Quality Control — Predictive SLA Management
 
 ### Scenario: E-commerce Order Processing Pipeline
 
@@ -125,11 +137,11 @@ Status: SLA BREACH - Business dashboard down
 Response: Manual investigation required
 ```
 
-#### Data Spoke Predictive Approach
+#### DataSpoke Predictive Approach
 
 **Day 1 - Monday 7:00 AM: Early Warning**
 ```
-Data Spoke Alert (Predictive):
+DataSpoke Alert (Predictive):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚠ Anomaly Detection: orders.daily_summary
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -182,7 +194,7 @@ Engineering team receives alert and takes action:
 
 **Result Comparison:**
 
-| Metric | Traditional Monitoring | Data Spoke Predictive |
+| Metric | Traditional Monitoring | DataSpoke Predictive |
 |--------|----------------------|----------------------|
 | Detection Time | 9:00 AM (breach) | 7:00 AM (pre-breach) |
 | Response Window | 0 min (already late) | 120 min (proactive) |
@@ -192,7 +204,7 @@ Engineering team receives alert and takes action:
 
 **Week 2 - Pattern Learning**
 ```
-Data Spoke Insight:
+DataSpoke Insight:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 Weekly Pattern Analysis: orders.daily_summary
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -215,7 +227,7 @@ Auto-adjusted Threshold:
 
 ---
 
-## Use Case 3: Semantic Data Discovery
+## Use Case 3: Knowledge Base — Semantic Data Discovery
 
 ### Scenario: Privacy Compliance Audit
 
@@ -235,7 +247,7 @@ Time Required: 4-6 hours
 Accuracy: 70% (depends on documentation quality)
 ```
 
-#### Data Spoke Semantic Search
+#### DataSpoke Semantic Search API
 
 **Query:**
 ```
@@ -243,7 +255,7 @@ Natural Language Input:
 "Find tables with European user PII used by marketing analytics"
 ```
 
-**Data Spoke Processing:**
+**DataSpoke Processing:**
 ```python
 # Step 1: Semantic Understanding
 parsed_query = {
@@ -258,7 +270,7 @@ parsed_query = {
 }
 
 # Step 2: Vector Search + Graph Traversal
-results = data_spoke.semantic_search(
+results = dataspoke.knowledge_base.semantic_search(
   query=parsed_query,
   search_method="hybrid",  # Vector similarity + Graph lineage
   compliance_mode=True
@@ -267,7 +279,7 @@ results = data_spoke.semantic_search(
 
 **Results:**
 ```
-Data Spoke Response (Retrieved in 2.3 seconds):
+DataSpoke Response (Retrieved in 2.3 seconds):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📊 Found 8 Tables Matching Criteria
@@ -346,7 +358,7 @@ Export Options:
 ```
 "Which tables don't have automated right-to-deletion?"
 
-Data Spoke Response:
+DataSpoke Response:
 Found 2 tables requiring manual intervention:
 1. events.eu_user_activity_log
    Issue: Deletion requires manual SQL script
@@ -365,7 +377,7 @@ Found 2 tables requiring manual intervention:
 
 ---
 
-## Use Case 4: Metadata Health Monitoring
+## Use Case 4: Self-Purifier — Metadata Health Monitoring
 
 ### Scenario: Enterprise-wide Data Quality Initiative
 
@@ -388,11 +400,11 @@ Problems:
 - Hard to measure improvement
 ```
 
-#### Data Spoke Automated Health Monitoring
+#### DataSpoke Automated Health Monitoring
 
 **Week 1: Initial Assessment**
 ```
-Data Spoke Health Dashboard:
+DataSpoke Health Dashboard:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 Enterprise Metadata Health Score: 62/100
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -492,7 +504,7 @@ Subject: [Action Required] 3 Tables Need Documentation Update
 
 Hi John,
 
-Data Spoke has identified tables under your ownership that need
+DataSpoke has identified tables under your ownership that need
 documentation updates:
 
 1. marketing.attribution_model_v2
@@ -522,7 +534,7 @@ With these fixes: 64/100 (↑ 6 points)
 
 **Month 1: Progress Tracking**
 ```
-Data Spoke Monthly Report:
+DataSpoke Monthly Report:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📈 Enterprise Health Score: 62 → 71 (+9 points)
@@ -559,7 +571,7 @@ Compliance Impact:
 
 **Month 3: Continuous Monitoring**
 ```
-Data Spoke Insight (Auto-generated):
+DataSpoke Insight (Auto-generated):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🎉 Milestone Achieved!
@@ -595,17 +607,221 @@ Recommendation:
 
 ---
 
+## Use Case 5: Self-Purification — AI-Driven Ontology Design
+
+### Scenario: Resolving Semantic Drift After a Company Acquisition
+
+**Background:**
+A fintech company acquires a smaller payments startup. Post-acquisition, the combined DataHub catalog contains 800+ datasets — 300 from the acquired company — with overlapping concepts, conflicting naming conventions, and duplicated entities. The data governance team cannot manually audit and reconcile 800 datasets.
+
+#### The Problem: Semantic Drift at Scale
+```
+Before DataSpoke Self-Purification:
+
+Concept: "Customer"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Legacy system (core company):
+  - users.customers           → id, email, signup_date
+  - crm.client_master         → client_id, contact_email, created_at
+  - analytics.user_profiles   → user_uuid, email_address, registration_ts
+
+Acquired company:
+  - payments.payer_registry   → payer_ref, payer_email, onboarded_at
+  - risk.account_holders      → acct_id, email, account_opened
+  - kyc.verified_identities   → identity_id, email_addr, verified_date
+
+Problems:
+  ✗ 6 tables all represent "Customer" with different schemas
+  ✗ No documented relationship between them
+  ✗ Downstream pipelines join across them inconsistently
+  ✗ AI agents cannot reliably identify the "right" customer table
+  ✗ Compliance reports double-count customers
+```
+
+#### DataSpoke Self-Purification: Ontology Analysis
+
+**Phase 1: Semantic Clustering**
+```
+DataSpoke Self-Purification Report:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 Semantic Clustering Analysis
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Analyzed: 800 datasets
+Semantic clusters detected: 47
+Clusters with conflicts: 12
+Critical conflicts (AI agents affected): 4
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Cluster: CUSTOMER IDENTITY (Critical)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6 tables detected representing the same concept:
+
+Similarity Matrix (embedding cosine distance):
+  users.customers           ←→ crm.client_master         0.94
+  users.customers           ←→ analytics.user_profiles   0.91
+  users.customers           ←→ payments.payer_registry   0.88
+  payments.payer_registry   ←→ risk.account_holders      0.92
+  risk.account_holders      ←→ kyc.verified_identities   0.89
+
+Conflict Type: ENTITY DUPLICATION
+Evidence:
+  - All 6 contain email-like fields (semantic match: 100%)
+  - All 6 contain a creation timestamp (semantic match: 95%)
+  - Overlapping downstream lineage: 23 shared consumers
+  - Sample record overlap (estimated): 78%
+
+AI Agent Impact:
+  - 12 AI-generated pipelines query ≥2 of these tables
+  - 3 pipelines produce inconsistent customer counts
+  - Context Verification API returning warnings on 8 pipelines
+```
+
+**Phase 2: Ontology Proposal**
+```
+DataSpoke Self-Purification:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📐 Proposed Ontology — CUSTOMER IDENTITY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Recommendation: Define a canonical "Customer" entity
+
+Canonical Entity (proposed):
+  Name: enterprise.customer_master
+  Concept: The single unified record of a customer across all systems
+  Fields (merged schema):
+    - customer_id          (surrogate key, new)
+    - email                (normalized from 6 variants)
+    - source_system        (origin: "core" | "acquired")
+    - legacy_id_core       (maps to users.customers.id)
+    - legacy_id_acquired   (maps to payments.payer_registry.payer_ref)
+    - created_at           (earliest of all source timestamps)
+    - kyc_verified         (from kyc.verified_identities)
+    - risk_score           (from risk.account_holders)
+
+Proposed Table Roles:
+  ┌──────────────────────────────┬─────────────────────────────┐
+  │ Table                        │ Proposed Role               │
+  ├──────────────────────────────┼─────────────────────────────┤
+  │ enterprise.customer_master   │ NEW — canonical SSOT        │
+  │ users.customers              │ Deprecated → migrate to new │
+  │ crm.client_master            │ CRM view (keep, alias only) │
+  │ analytics.user_profiles      │ Analytics view (keep)       │
+  │ payments.payer_registry      │ Payments system view (keep) │
+  │ risk.account_holders         │ Risk view (keep)            │
+  │ kyc.verified_identities      │ KYC view (keep)             │
+  └──────────────────────────────┴─────────────────────────────┘
+
+Consistency Rules (proposed):
+  R1. All new pipelines MUST join on enterprise.customer_master
+  R2. email field must be normalized to lowercase + stripped
+  R3. customer_id is immutable once assigned
+  R4. source_system tag required on all customer-originating events
+
+Impact Assessment:
+  Pipelines requiring update: 23
+  Estimated migration effort: Medium (schema additive, not breaking)
+  Downstream dashboard impact: 5 dashboards need customer_id added
+
+[Approve Proposal] [Modify] [Request Human Review]
+```
+
+**Phase 3: Autonomous Consistency Check**
+```
+DataSpoke Self-Purification — Consistency Scan (Weekly):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ontology Rules Checked: 4
+Violations Found: 2
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Violation 1 — Rule R1
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Pipeline: ml.churn_risk_model_v3
+Owner: data-science@company.com
+
+Issue:
+  This pipeline joins directly on payments.payer_registry
+  instead of enterprise.customer_master
+
+Risk:
+  - Excludes ~22% of customers from the legacy core system
+  - Model trained on biased population
+
+Auto-correction Available:
+  Replace: JOIN payments.payer_registry pr ON pr.payer_ref = t.id
+  With:    JOIN enterprise.customer_master cm ON cm.legacy_id_acquired = t.id
+
+Confidence: 91%
+[Auto-apply Fix] [Notify Owner] [Dismiss]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Violation 2 — Rule R2
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Table: analytics.email_campaign_results
+Owner: marketing@company.com
+
+Issue:
+  email column contains mixed-case values ("John@ACME.com")
+  Normalization rule R2 not applied at ingestion time
+
+Risk:
+  - Customer matching failures (~3% of records)
+  - GDPR deletion requests may miss non-normalized records
+
+Auto-correction Available:
+  Apply: LOWER(TRIM(email)) transformation at ingestion
+  Estimated affected rows: ~45,000
+
+Confidence: 99%
+[Auto-apply Fix] [Notify Owner] [Dismiss]
+```
+
+**Phase 4: Ontology Health Over Time**
+```
+DataSpoke Self-Purification — Monthly Ontology Report:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ontology Consistency Score: 94/100 (↑ from 61/100 at acquisition)
+
+Active Ontology Rules: 47
+Violations this month: 3 (↓ from 38 last month)
+Auto-corrected: 2 (confidence > 90%)
+Human review required: 1
+
+New Semantic Drift Detected:
+  Cluster: TRANSACTION
+  Tables in conflict: 3 (new post-acquisition)
+  Recommendation: Define canonical Transaction entity
+  [Start Ontology Design]
+
+Catalog AI-Readiness Score: 89/100
+  (% of entities AI agents can safely query without verification warnings)
+```
+
+**Outcome:**
+- 🔍 **Visibility:** Semantic conflicts surfaced automatically at acquisition scale
+- 📐 **Ontology:** Canonical entity definitions proposed with evidence
+- 🤖 **AI Safety:** Catalog AI-readiness score raised from 61% → 89%
+- ✅ **Consistency:** Continuous rule enforcement — 3 violations/month vs. 38 pre-purification
+- ⚡ **Efficiency:** Manual ontology audit (estimated 3 months) replaced with automated proposal in hours
+
+---
+
 ## Summary: Value Delivered
 
-| Use Case | Traditional Approach | With Data Spoke | Improvement |
-|----------|---------------------|-----------------|-------------|
-| **AI Pipeline Development** | 30% failure rate from bad data sources | <5% failure rate with context verification | 83% reduction in incidents |
-| **Predictive SLA Management** | Reactive alerts after breach | Proactive warnings 2+ hours early | 100% SLA achievement |
-| **Semantic Data Discovery** | 4-6 hours manual search | 2-5 minutes automated search | 98% time savings |
-| **Metadata Health Monitoring** | Quarterly manual audits (2 weeks) | Real-time continuous monitoring | 95% efficiency gain |
+| Use Case | Feature Group | Traditional Approach | With DataSpoke | Improvement |
+|----------|--------------|---------------------|----------------|-------------|
+| **AI Pipeline Context Verification** | Knowledge Base & Verifier | 30% failure rate from bad data sources | <5% failure with real-time verification | 83% reduction in incidents |
+| **Predictive SLA Management** | Quality Control | Reactive alerts after breach | Proactive warnings 2+ hours early | 100% SLA achievement |
+| **Semantic Data Discovery** | Knowledge Base & Verifier | 4-6 hours manual search | 2-5 minutes automated search | 98% time savings |
+| **Metadata Health Monitoring** | Self-Purifier | Quarterly manual audits (2 weeks) | Real-time continuous monitoring | 95% efficiency gain |
+| **AI-Driven Ontology Design** | Self-Purifier | 3-month manual reconciliation | Automated proposal in hours | Orders-of-magnitude faster |
 
 **Cross-cutting Benefits:**
 - 🤖 **AI-Ready:** Enables autonomous agents to work safely with production data
 - 📊 **Real-time Intelligence:** Shifts from reactive to proactive data management
 - 🔍 **Context-Aware:** Understands data relationships and business meaning
 - 🎯 **Measurable Impact:** Quantifiable improvements in quality, compliance, and efficiency
+- 📐 **Ontology Health:** Catalog remains semantically consistent as the organization grows
