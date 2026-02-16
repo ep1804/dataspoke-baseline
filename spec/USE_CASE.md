@@ -15,7 +15,7 @@ This document provides detailed, real-world scenarios demonstrating how DataSpok
 | [Use Case 2: Quality Control — Predictive SLA Management](#use-case-2-quality-control--predictive-sla-management) | Quality Control | Python-based Quality Model |
 | [Use Case 3: Knowledge Base — Semantic Data Discovery](#use-case-3-knowledge-base--semantic-data-discovery) | Knowledge Base & Verifier | Semantic Search API |
 | [Use Case 4: Self-Purifier — Metadata Health Monitoring](#use-case-4-self-purifier--metadata-health-monitoring) | Self-Purifier | Documentation Auditor + Health Score Dashboard |
-| [Use Case 5: Self-Purification — AI-Driven Ontology Design](#use-case-5-self-purification--ai-driven-ontology-design) | Self-Purifier | AI-driven ontology consistency checks & corrections |
+| [Use Case 5: Self-Purification — AI-Driven Ontology Design](#use-case-5-self-purification--ai-driven-ontology-design) | Self-Purifier | Self-Purification capability (§1.1) |
 
 ---
 

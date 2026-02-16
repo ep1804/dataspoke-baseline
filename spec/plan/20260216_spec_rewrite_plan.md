@@ -78,6 +78,7 @@
 
 ### Open questions
 
-- [ ] Should `ARCHITECTURE.md` explicitly separate the "Knowledge Base" data store (vector DB + embeddings) from the "Verifier" runtime service? Or are they one backend service?
+- [x] Should `ARCHITECTURE.md` explicitly separate the "Knowledge Base" data store (vector DB + embeddings) from the "Verifier" runtime service? Or are they one backend service?
+  **Decision (2026-02-16)**: Separated. `knowledge_base/` and `context_verifier/` are sibling backend services. The Verifier is a runtime consumer of the Knowledge Base, not a sub-module of it. Product taxonomy ("Knowledge Base & Verifier" feature group) is unchanged. See Design Decision §7 in `ARCHITECTURE.md`.
 - [ ] Context Verification API is described as "real-time" — synchronous REST or streaming/WebSocket? This affects the API router and workflow design.
 - [ ] Does "Scaffold for AI Coding" (Goal 2 from manifesto) warrant its own section in `ARCHITECTURE.md` documenting the Claude Code utilities architecture?

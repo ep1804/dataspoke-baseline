@@ -181,21 +181,10 @@ API documentation exists as **standalone artifacts** in a separate directory:
 **Components**:
 ```
 src/frontend/
-├── app/                    # Next.js app directory
-│   ├── dashboard/          # Main dashboard views
-│   ├── lineage/            # Lineage visualization
-│   ├── quality/            # Quality Control UI
-│   ├── self-purifier/      # Self-Purifier (health scores, auditor)
-│   └── search/             # Knowledge Base & Verifier UI
-├── components/             # Reusable UI components
-│   ├── charts/             # Highcharts wrappers
-│   ├── tables/             # Data grid components
-│   └── common/             # Shared UI elements
-├── lib/                    # Client-side utilities
-│   ├── api-client.ts       # API communication layer
-│   ├── state/              # State management (Zustand/Redux)
-│   └── hooks/              # Custom React hooks
-└── styles/                 # Global styles and themes
+├── app/            # Next.js pages per feature group (dashboard, quality, self-purifier, search)
+├── components/     # Reusable UI components (charts, tables, common)
+├── lib/            # API client, state management, custom hooks
+└── styles/         # Global styles and themes
 ```
 
 **Key Features**:
@@ -211,22 +200,10 @@ src/frontend/
 **Structure**:
 ```
 src/api/
-├── routers/                # API endpoint definitions
-│   ├── ingestion.py        # Ingestion management endpoints
-│   ├── quality.py          # Quality Control endpoints
-│   ├── self_purifier.py    # Self-Purifier endpoints (health scores, auditor)
-│   ├── knowledge_base.py   # Semantic Search endpoints
-│   ├── verification.py     # Context Verification API (Online Verifier)
-│   └── system.py           # System health check & status
-├── schemas/                # Pydantic models
-│   ├── requests/           # Request validation schemas
-│   └── responses/          # Response serialization schemas
-├── middleware/             # Cross-cutting concerns
-│   ├── auth.py             # Authentication/authorization
-│   ├── logging.py          # Request/response logging
-│   └── rate_limit.py       # Rate limiting
-├── dependencies.py         # Dependency injection
-└── main.py                 # FastAPI application entry
+├── routers/        # One router per feature group + system health
+├── schemas/        # Pydantic request/response models
+├── middleware/     # Auth, logging, rate limiting
+└── main.py         # FastAPI application entry
 ```
 
 **API Types**:
@@ -238,45 +215,25 @@ src/api/
 
 **Technology**: Python 3.11+ (FastAPI framework)
 
-**Feature services mirror the four manifesto feature groups:**
+**Feature services mirror the four manifesto feature groups.**
+**Note**: `knowledge_base/` and `context_verifier/` are implemented as sibling services even though the manifesto groups them under "Knowledge Base & Verifier". The Verifier is a runtime consumer of the Knowledge Base, not a sub-module of it.
 
 ```
 src/backend/
-├── services/
-│   ├── ingestion/              # [Ingestion] Custom data source synchronization
-│   │   ├── connectors/         # Source-specific connectors
-│   │   ├── schedulers/         # Ingestion scheduling logic
-│   │   └── transformers/       # Data transformation pipelines
-│   │
-│   ├── quality/                # [Quality Control] Data quality analysis
-│   │   ├── models/             # ML models (Prophet, Isolation Forest, etc.)
-│   │   ├── rules/              # Rule-based validation
-│   │   └── anomaly.py          # Anomaly detection engine
-│   │
-│   ├── self_purifier/          # [Self-Purifier] Metadata health & ontology
-│   │   ├── auditor.py          # Documentation Auditor — scans for metadata errors
-│   │   ├── scoring.py          # Health Score calculation per entity / team
-│   │   └── alerts.py           # Owner notifications and digest alerts
-│   │
-│   └── knowledge_base/         # [Knowledge Base & Verifier]
-│       ├── semantic_search/    # Semantic Search API
-│       │   ├── embeddings/     # Text embedding generation
-│       │   ├── indexing/       # Vector DB indexing
-│       │   └── ranking.py      # Search result ranking
-│       └── context_verifier/   # Context Verification API (Online Verifier)
-│           ├── verifier.py     # Real-time pipeline output validation
-│           └── context.py      # Context enrichment from Knowledge Base
-│
-├── models/                 # Domain models
-├── repositories/           # Data access layer
-├── utils/                  # Shared utilities
-└── config.py               # Configuration management
+├── ingestion/          # Custom connector execution and scheduling
+├── quality/            # ML-based anomaly detection and rule validation
+├── self_purifier/      # Metadata health scoring and documentation auditing
+├── knowledge_base/     # Embedding generation, vector indexing, semantic search
+├── context_verifier/   # Online Verifier; queries knowledge_base for context
+├── models/             # Domain models
+├── repositories/       # Data access layer
+└── config.py           # Configuration management
 ```
 
 **Key Capabilities**:
-- **Custom Connectors**: REST API-based sync for non-standard sources
-- **ML Models**: Time series analysis, anomaly detection
-- **LLM Integration**: Process unstructured data (Slack, docs) for metadata extraction
+- **Python-based Custom Ingestion**: REST API-based sync for legacy and non-standard sources
+- **Python-based Quality Model**: ML-based time series anomaly detection (Prophet, Isolation Forest)
+- **LLM Integration**: Metadata extraction from unstructured sources (Slack, docs)
 - **DataHub SDK**: Bidirectional communication with DataHub GMS
 
 ### Data & Storage Layer
@@ -348,19 +305,10 @@ src/backend/
 **Workflows**:
 ```
 src/workflows/
-├── ingestion/
-│   ├── scheduled_sync.py       # [Ingestion] Periodic DataHub sync
-│   ├── custom_source_sync.py   # [Ingestion] Custom connector execution
-│   └── backfill.py             # [Ingestion] Historical data backfill
-├── quality/
-│   ├── anomaly_detection.py    # [Quality Control] Run ML models on datasets
-│   ├── rule_validation.py      # [Quality Control] Execute quality rules
-│   └── health_scoring.py       # [Self-Purifier] Calculate metadata health scores
-├── knowledge_base/
-│   ├── embedding_generation.py # [Knowledge Base] Generate embeddings
-│   └── index_maintenance.py    # [Knowledge Base] Vector DB maintenance
-└── notifications/
-    └── digest_sender.py        # [Self-Purifier] Send daily/weekly owner digests
+├── ingestion/          # Scheduled sync, custom source execution, backfill
+├── quality/            # Anomaly detection, rule validation, health scoring
+├── knowledge_base/     # Embedding generation and vector index maintenance
+└── notifications/      # Owner digest delivery (Self-Purifier)
 ```
 
 **Why Temporal over Airflow**:
@@ -479,7 +427,7 @@ User Query: "Find PII tables used by marketing"
 └─────────────────────────────────────────┘
 ```
 
-### 3. Knowledge Base: Context Verification Flow (Online Verifier)
+### 3. Context Verifier: Context Verification Flow (Online Verifier)
 
 ```
 AI Agent: pipeline output to verify
@@ -680,97 +628,20 @@ ConfigMap:
 ## Repository Structure
 
 ```
-dataspoke/
-├── .github/
-│   └── workflows/              # CI/CD pipelines
-│       ├── test-backend.yml
-│       ├── test-frontend.yml
-│       └── deploy.yml
-│
-├── docker-images/              # Custom Docker images
-│   ├── backend/
-│   │   └── Dockerfile
-│   ├── frontend/
-│   │   └── Dockerfile
-│   └── workers/
-│       └── Dockerfile
-│
-├── helm-charts/                # Kubernetes deployment
-│   └── dataspoke/
-│       ├── Chart.yaml
-│       ├── values.yaml
-│       └── templates/
-│           ├── deployment.yaml
-│           ├── service.yaml
-│           └── ingress.yaml
-│
-├── docs/                       # Documentation
-│   ├── installation/
-│   ├── operations/
-│   ├── api/
-│   └── development/
-│
-├── api/                        # Standalone API documentation
-│   ├── openapi.yaml            # OpenAPI 3.0 spec
-│   ├── README.md               # API overview
-│   └── examples/               # Request/response examples
-│
-├── src/                        # Source code
-│   ├── frontend/               # Next.js application
-│   │   ├── app/
-│   │   ├── components/
-│   │   ├── lib/
-│   │   └── package.json
-│   │
-│   ├── api/                    # FastAPI application
-│   │   ├── routers/
-│   │   ├── schemas/
-│   │   ├── middleware/
-│   │   └── main.py
-│   │
-│   ├── backend/                # Backend services
-│   │   ├── services/
-│   │   │   ├── ingestion/
-│   │   │   ├── quality/
-│   │   │   ├── self_purifier/
-│   │   │   └── knowledge_base/
-│   │   ├── models/
-│   │   ├── repositories/
-│   │   └── config.py
-│   │
-│   ├── workflows/              # Temporal workflows
-│   │   ├── ingestion/
-│   │   ├── quality/
-│   │   ├── knowledge_base/
-│   │   └── notifications/
-│   │
-│   └── shared/                 # Shared utilities
-│       ├── datahub/            # DataHub client wrappers
-│       ├── models/             # Shared data models
-│       └── utils/
-│
-├── tests/                      # Test suites
-│   ├── unit/
-│   ├── integration/
-│   └── e2e/
-│
-├── scripts/                    # Utility scripts
-│   ├── setup-dev.sh
-│   ├── seed-data.sh
-│   └── migrate-db.sh
-│
-├── migrations/                 # Database migrations
-│   └── versions/
-│
-├── config/                     # Configuration files
-│   ├── dev.yaml
-│   ├── staging.yaml
-│   └── production.yaml
-│
-├── Makefile                    # Common commands
-├── pyproject.toml              # Python dependencies
-├── package.json                # Node dependencies (root)
-└── README.md                   # Project overview
+dataspoke-baseline/
+├── api/                # Standalone OpenAPI 3.0 specs (API-first design)
+├── src/
+│   ├── frontend/       # Next.js application
+│   ├── api/            # FastAPI application (routers, schemas, middleware)
+│   ├── backend/        # Feature services (ingestion, quality, self_purifier, knowledge_base, context_verifier)
+│   ├── workflows/      # Temporal workflows
+│   └── shared/         # DataHub client wrappers, shared models
+├── helm-charts/        # Kubernetes deployment manifests
+├── spec/               # Architecture specs and planning documents
+├── dev_env/            # Local Kubernetes dev environment scripts
+├── tests/              # Unit, integration, and e2e test suites
+├── migrations/         # Alembic database migrations
+└── config/             # Environment-specific configuration files
 ```
 
 ---
@@ -859,7 +730,20 @@ dataspoke/
 - ✅ Team autonomy (frontend/backend teams work independently)
 - ✅ Clear ownership and responsibilities
 
-### 7. PostgreSQL vs MongoDB?
+### 7. Knowledge Base and Context Verifier: Sibling Services
+
+**Decision**: `knowledge_base/` and `context_verifier/` are implemented as sibling backend services, not nested.
+
+**Rationale**:
+- ✅ Dependency direction is explicit: Verifier *calls* Knowledge Base; nesting implied ownership
+- ✅ Different scaling axes: Knowledge Base scales on storage/throughput; Verifier scales on request rate and latency
+- ✅ Verifier may consume inputs beyond Knowledge Base (e.g., quality scores from Quality Control)
+- ✅ Independent testability — Verifier can be unit-tested by mocking the Knowledge Base interface
+- ❌ Nested approach: hides the consumer/producer relationship; conflates data layer with validation logic
+
+**Product taxonomy unchanged**: The manifesto groups them as "Knowledge Base & Verifier" — this remains the canonical feature group label. The separation is an implementation concern only.
+
+### 8. PostgreSQL vs MongoDB?
 
 **Decision**: PostgreSQL for operational database
 
@@ -986,10 +870,11 @@ Distributed tracing:
 - Deploy DataSpoke alongside existing DataHub
 - Configure Kafka consumer for DataHub events
 - Establish Hub-Spoke API contracts
+- Stand up Management & Orchestration layer (Temporal) shared across all feature groups
 
 ### Phase 2: Ingestion
 - Develop custom connectors for legacy and unstructured sources
-- Implement Management & Orchestration (Temporal workflows)
+- Register first ingestion workflows with the Management & Orchestration layer
 - Migrate from manual ingestion processes to DataSpoke
 
 ### Phase 3: Quality Control

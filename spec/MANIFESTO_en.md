@@ -44,7 +44,6 @@ The name **DataSpoke** comes from treating the existing DataHub as the Hub, and 
 ### Ingestion
 
 * **Python-based Custom Ingestion**: Flexible access to legacy and unstructured data sources.
-* **Management & Orchestration**: Centralized ingestion configuration with its own storage, APIs, and workflow engine (Airflow or Temporal).
 
 ### Quality Control
 
@@ -67,4 +66,4 @@ The name **DataSpoke** comes from treating the existing DataHub as the Hub, and 
 DataSpoke is a **sidecar application** that integrates with DataHub while remaining independently deployable.
 
 * **The Hub (DataHub GMS)**: Single Source of Truth for metadata. Manages metadata persistence and standard schemas; communicates bidirectionally with DataSpoke via GraphQL/REST API and Kafka.
-* **The Spoke (DataSpoke)**: Handles the business logic and dedicated UX layer that Hub does not provide. Built on FastAPI and Next.js, with its own Orchestration, and optionally its own VectorDB and analytics infrastructure as needed.
+* **The Spoke (DataSpoke)**: Handles the business logic and dedicated UX layer that Hub does not provide. Built on FastAPI and Next.js, with its own **Management & Orchestration** layer (shared workflow engine, scheduling, and operational APIs across all feature groups), and optionally its own VectorDB and analytics infrastructure as needed.

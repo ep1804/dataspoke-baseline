@@ -1,3 +1,3 @@
-# dataspoke-spec
+# dataspoke-baseline
 
-DataSpoke Solution Spec for AI coding
+AI Data Catalog Starter: Productized Scaffold for Custom Solutions

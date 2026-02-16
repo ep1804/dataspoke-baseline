@@ -50,7 +50,7 @@ DataSpoke is a **loosely coupled sidecar** to DataHub. DataHub is deployed separ
 ```
 src/frontend/   — Next.js app
 src/api/        — FastAPI routers, schemas, middleware
-src/backend/    — Services: ingestion, quality, self_purifier, knowledge_base
+src/backend/    — Services: ingestion, quality, self_purifier, knowledge_base, context_verifier
 src/workflows/  — Temporal workflows
 src/shared/     — DataHub client wrappers, shared models
 api/            — Standalone OpenAPI 3.0 spec (API-first design)
@@ -86,6 +86,7 @@ The `spec/` directory is hierarchical. **`MANIFESTO_en.md` / `MANIFESTO_kr.md` a
 spec/
 ├── MANIFESTO_en.md / MANIFESTO_kr.md  ← Highest authority. Never modify.
 ├── ARCHITECTURE.md                     ← System-wide architecture overview.
+├── AI_SCAFFOLD.md                      ← Claude Code scaffold: Goal 2 of the project.
 ├── USE_CASE.md                         ← Conceptual scenarios (vision/ideation).
 ├── feature/                            ← Deep-dive specs for MAJOR features.
 │   │                                     Timeless reference format. No dates/logs.

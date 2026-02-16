@@ -44,7 +44,6 @@ DataHub, Dataplex, OpenMetadata 등의 플랫폼은 방대한 기능을 제공�
 ### Ingestion (수집)
 
 * **Python-based Custom Ingestion**: 레거시 및 비정형 데이터 소스에 대한 유연한 접근을 지원한다.
-* **Management & Orchestration**: 수집 설정을 중앙에서 관리하며, 독자적인 저장소, API, 워크플로우(Airflow or Temporal)를 가진다.
 
 ### Quality Control (품질 관리)
 
@@ -67,4 +66,4 @@ DataHub, Dataplex, OpenMetadata 등의 플랫폼은 방대한 기능을 제공�
 DataSpoke는 DataHub와 연동되면서도 독립적으로 배포되는 **사이드카(Sidecar) 애플리케이션**이다.
 
 * **The Hub (DataHub GMS)**: 메타데이터의 '단일 진실 공급원(Single Source of Truth)'. 메타데이터 영속성 및 표준 스키마를 관리하며, GraphQL/REST API 및 Kafka를 통해 DataSpoke와 양방향으로 통신한다.
-* **The Spoke (DataSpoke)**: Hub가 제공하지 않는 비즈니스 로직과 전용 UX 레이어를 담당한다. FastAPI와 Next.js를 기반으로 하며, 자체 Orchestration을 운영하며, 필요에 따라 자체 VectorDB, 분석 인프라를 병행 운용한다.
+* **The Spoke (DataSpoke)**: Hub가 제공하지 않는 비즈니스 로직과 전용 UX 레이어를 담당한다. FastAPI와 Next.js를 기반으로 하며, 모든 기능 그룹에 걸쳐 공유되는 **Management & Orchestration** 레이어(워크플로우 엔진, 스케줄링, 운영 API)를 운영하며, 필요에 따라 자체 VectorDB, 분석 인프라를 병행 운용한다.
