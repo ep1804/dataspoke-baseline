@@ -130,6 +130,12 @@ DATASPOKE_DEV_KUBE_DATAHUB_CHART_VERSION=0.8.3
 DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_UI_PORT=9002
 DATASPOKE_DEV_KUBE_DATAHUB_MYSQL_ROOT_PASSWORD=<16+ char password>
 DATASPOKE_DEV_KUBE_DATAHUB_MYSQL_PASSWORD=<16+ char password>
+
+# example-postgres credentials (dev only)
+DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_USER=postgres
+DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_PASSWORD=ExampleDev2024!
+DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_DB=example_db
+DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_PORT_FORWARD_PORT=5432
 ```
 
 Sub-scripts (`datahub/install.sh`, `dataspoke-example/install.sh`) source `../.env` relative to their own `SCRIPT_DIR`. The top-level scripts source `./.env`.
@@ -164,6 +170,7 @@ For production environments requiring heavy graph traversal at scale, Neo4j can 
 | Secret Name | Namespace | Keys |
 |-------------|-----------|------|
 | `mysql-secrets` | `$DATASPOKE_KUBE_DATAHUB_NAMESPACE` | `mysql-root-password`, `mysql-password` |
+| `example-postgres-secret` | `$DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE` | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` |
 
 Secrets are created idempotently using `--dry-run=client -o yaml | kubectl apply -f -`.
 
@@ -246,21 +253,23 @@ Plain Kubernetes manifests (no Helm). Applied with `kubectl apply -f manifests/`
 | Field | Value |
 |-------|-------|
 | Image | `postgres:15` |
-| Database | `example_db` |
-| Password | `ExampleDev2024!` (via Secret `example-postgres-secret`) |
+| User | `$DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_USER` (default: `postgres`) |
+| Database | `$DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_DB` (default: `example_db`) |
+| Password | `$DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_PASSWORD` (default: `ExampleDev2024!`) |
 | Memory limit | 256 Mi |
 | Storage | 5 Gi PVC at `/var/lib/postgresql/data` |
 | Service | ClusterIP, port 5432, name `example-postgres` |
 
-The manifest includes the Secret inline in the same file.
+Credentials are sourced from `dev_env/.env` variables. The `install.sh` script creates the `example-postgres-secret` via `kubectl create secret --from-literal` before applying manifests. The manifest no longer contains hardcoded `stringData`.
 
 ### dataspoke-example/install.sh Steps
 
 1. Source `../.env`
 2. Ensure `$DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE` namespace exists
-3. `kubectl apply -f ./manifests/`
-4. Wait for PostgreSQL: `kubectl rollout status deployment/example-postgres --timeout=3m`
-5. Print connection details for local use
+3. Create `example-postgres-secret` from `$DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_*` variables (idempotent via `--dry-run=client -o yaml | kubectl apply -f -`)
+4. `kubectl apply -f ./manifests/`
+5. Wait for PostgreSQL: `kubectl rollout status deployment/example-postgres --timeout=3m`
+6. Print connection details for local use
 
 ---
 

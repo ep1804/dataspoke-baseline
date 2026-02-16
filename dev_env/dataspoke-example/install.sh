@@ -22,6 +22,9 @@ echo "=== Installing dataspoke-example ==="
 echo ""
 
 NS="${DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE}"
+PG_USER="${DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_USER:-postgres}"
+PG_PASS="${DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_PASSWORD:-ExampleDev2024!}"
+PG_DB="${DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_DB:-example_db}"
 
 # ---------------------------------------------------------------------------
 # Ensure namespace exists
@@ -32,6 +35,17 @@ else
   info "Creating namespace '${NS}'..."
   kubectl create namespace "${NS}"
 fi
+
+# ---------------------------------------------------------------------------
+# Create Postgres secret (idempotent)
+# ---------------------------------------------------------------------------
+info "Creating example-postgres-secret..."
+kubectl create secret generic example-postgres-secret \
+  --namespace "${NS}" \
+  --from-literal=POSTGRES_USER="${PG_USER}" \
+  --from-literal=POSTGRES_PASSWORD="${PG_PASS}" \
+  --from-literal=POSTGRES_DB="${PG_DB}" \
+  --dry-run=client -o yaml | kubectl apply -f -
 
 # ---------------------------------------------------------------------------
 # Apply manifests
@@ -57,5 +71,5 @@ echo "Port-forward command:"
 echo ""
 echo "  PostgreSQL:"
 echo "  kubectl port-forward --namespace ${NS} svc/example-postgres 5432:5432"
-echo "  Connection: postgres / ExampleDev2024! — database: example_db"
+echo "  Connection: ${PG_USER} / ${PG_PASS} — database: ${PG_DB}"
 echo ""
