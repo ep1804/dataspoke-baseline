@@ -1,8 +1,8 @@
-Read `spec/DEV_ENV.md` for the full development environment specification, then set up the local dev environment step by step.
+Read `spec/feature/DEV_ENV.md` for the full development environment specification, then set up the local dev environment step by step.
 
 ## Step 1 — Configure `.env`
 
-1. Read `dev_env/.env`. If it does not exist, create it from the template in `spec/DEV_ENV.md` § Configuration.
+1. Read `dev_env/.env`. If it does not exist, create it from the template in `spec/feature/DEV_ENV.md` § Configuration.
 2. If it already exists, read it and verify all required variables are present:
    - `DATASPOKE_KUBE_CLUSTER`
    - `DATASPOKE_KUBE_DATAHUB_NAMESPACE`
@@ -19,7 +19,7 @@ Read `spec/DEV_ENV.md` for the full development environment specification, then 
 
 1. Verify `kubectl` and `helm` are installed.
 2. Verify the Kubernetes cluster specified in `DATASPOKE_KUBE_CLUSTER` is reachable (`kubectl cluster-info`).
-3. Report cluster node resources (`kubectl get nodes`) so the user can confirm the cluster meets the minimum requirements from `spec/DEV_ENV.md` § Resource Sizing (8 CPU / 14 GB RAM).
+3. Report cluster node resources (`kubectl get nodes`) so the user can confirm the cluster meets the minimum requirements from `spec/feature/DEV_ENV.md` § Resource Sizing (8 CPU / 14 GB RAM).
 4. If any check fails, report clearly and stop.
 
 ## Step 3 — Run installation
@@ -35,7 +35,7 @@ Read `spec/DEV_ENV.md` for the full development environment specification, then 
 
 ## Step 4 — Verify
 
-1. Confirm all expected components are running (per `spec/DEV_ENV.md` § DataHub Installation and § dataspoke-example Installation).
+1. Confirm all expected components are running (per `spec/feature/DEV_ENV.md` § DataHub Installation and § dataspoke-example Installation).
 2. Use the `k8s-helm` agent for any troubleshooting of Helm or Kubernetes issues encountered during installation.
 
 ## Step 5 — Report to user

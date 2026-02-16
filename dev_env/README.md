@@ -109,7 +109,7 @@ c.f. there's also Claude Code command: /dataspoke-dev-env-uninstall
 
 ## Resource Budget
 
-This environment targets ~7.8 GiB memory limits on an 8 CPU / 14 GB RAM cluster (~55% utilization, ~4.7 GiB headroom for k8s system + burst). See `spec/DEV_ENV.md` for field-tested rationale per component.
+This environment targets ~7.8 GiB memory limits on an 8 CPU / 14 GB RAM cluster (~55% utilization, ~4.7 GiB headroom for k8s system + burst). See `spec/feature/DEV_ENV.md` for field-tested rationale per component.
 
 | Component | Namespace | Memory Limit |
 |-----------|-----------|-------------|

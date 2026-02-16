@@ -50,7 +50,7 @@ DataSpoke is a **loosely coupled sidecar** to DataHub. DataHub is deployed separ
 ```
 src/frontend/   — Next.js app
 src/api/        — FastAPI routers, schemas, middleware
-src/backend/    — Services: ingestion, quality, search, metadata
+src/backend/    — Services: ingestion, quality, self_purifier, knowledge_base
 src/workflows/  — Temporal workflows
 src/shared/     — DataHub client wrappers, shared models
 api/            — Standalone OpenAPI 3.0 spec (API-first design)
@@ -80,9 +80,26 @@ alembic upgrade head  # Apply DB migrations
 
 ## Spec Documents
 
+The `spec/` directory is hierarchical. **`MANIFESTO_en.md` / `MANIFESTO_kr.md` are the highest authority** — all naming, feature taxonomy, and product identity derive from them.
+
+```
+spec/
+├── MANIFESTO_en.md / MANIFESTO_kr.md  ← Highest authority. Never modify.
+├── ARCHITECTURE.md                     ← System-wide architecture overview.
+├── USE_CASE.md                         ← Conceptual scenarios (vision/ideation).
+├── feature/                            ← Deep-dive specs for MAJOR features.
+│   │                                     Timeless reference format. No dates/logs.
+│   └── <FEATURE>.md
+└── plan/                               ← Specs for MINOR changes and decisions.
+    │                                     Chronological log style, newest-first.
+    └── <TOPIC>.md
+```
+
+- `spec/MANIFESTO_en.md` / `spec/MANIFESTO_kr.md` — product philosophy, canonical feature taxonomy
 - `spec/ARCHITECTURE.md` — full system architecture, component designs, data flows, deployment
 - `spec/USE_CASE.md` — conceptual scenarios (vision/ideation, not implementation specs)
-- `spec/MANIFESTO_en.md` / `spec/MANIFESTO_kr.md` — product philosophy
+- `spec/feature/` — detailed specs per major feature (Ingestion, Quality Control, Self-Purifier, Knowledge Base & Verifier)
+- `spec/plan/` — chronological implementation plans and minor decision logs
 - `dev_env/README.md` — local Kubernetes setup details
 
 ## Claude Code Configuration (`.claude/`)
@@ -95,7 +112,7 @@ Skills live in `.claude/skills/`. Claude loads them automatically when the conte
 |-------|-----------|---------|
 | `kubectl` | `/kubectl <operation>` | Run kubectl/helm operations against the local cluster; reads `dev_env/.env` for context and namespaces. User-invoked only. |
 | `monitor-k8s` | `/monitor-k8s [focus]` | Full cluster health report (pods, events, Helm releases). Runs in a forked subagent. |
-| `plan-doc` | `/plan-doc <topic>` | Write spec/design documents in `spec/` following the existing markdown style. |
+| `plan-doc` | `/plan-doc <topic>` | Write spec documents routed to the correct tier: `spec/feature/` for major feature deep-dives (timeless reference format), `spec/plan/` for minor changes and decisions (chronological log style). |
 
 ### Commands — user-invoked workflows
 
