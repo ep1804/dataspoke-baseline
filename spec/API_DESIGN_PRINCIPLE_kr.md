@@ -36,7 +36,7 @@ REST API 설계와 관련하여 몇가지 세부적인 원칙을 제시한다. �
 
 ```json
 {
-    // Content: 요구된 자원 정보 (복수형 path에 대응하는 리스트 응답)
+    // Content: 요구된 자원 정보 (컬렉션 path에 대응하는 리스트 응답)
     "fruits": [
          {"name": "apple", "count": 5},
          {"name": "banana", "count": 3}
@@ -64,9 +64,9 @@ URI는 "무엇을(What)"에 집중해야 합니다. "어떻게(How)"에 해당�
   - `DELETE /delete-post/42`
 
 - **Good (Resource-based):**
-  - `POST /users` (사용자 생성)
-  - `GET /orders` (주문 목록 조회)
-  - `DELETE /posts/42` (42번 게시글 삭제)
+  - `POST /user` (사용자 생성)
+  - `GET /order` (주문 목록 조회)
+  - `DELETE /post/42` (42번 게시글 삭제)
 
 ---
 
@@ -76,19 +76,19 @@ URI는 "무엇을(What)"에 집중해야 합니다. "어떻게(How)"에 해당�
 
 - **구조:** `/{대분류}/{식별자}/{소분류}/{식별자}`
 - **Example (쇼핑몰 리뷰 시스템):**
-  - `/products` (상품 전체 목록)
-  - `/products/p001` (ID가 p001인 특정 상품)
-  - `/products/p001/reviews` (p001 상품에 달린 리뷰 전체 목록)
-  - `/products/p001/reviews/rev99` (p001 상품의 리뷰 중 ID가 rev99인 특정 리뷰)
+  - `/product` (상품 전체 목록)
+  - `/product/p001` (ID가 p001인 특정 상품)
+  - `/product/p001/review` (p001 상품에 달린 리뷰 전체 목록)
+  - `/product/p001/review/rev99` (p001 상품의 리뷰 중 ID가 rev99인 특정 리뷰)
 
 ---
 
-### 3. 복수형 Path 뒤에는 리스트(Collection) 응답을 반환한다
+### 3. 컬렉션과 단일 자원 구분
 
-경로의 끝이 복수형(`.../s`)으로 끝나면 클라이언트는 항상 배열(`[]`) 형태의 응답을 기대할 수 있어야 합니다.
+식별자가 없는 자원 경로는 컬렉션(목록)을 반환하고, 식별자가 있는 경로는 단일 객체를 반환합니다.
 
 - **Example (결제 내역 조회):**
-  - `GET /payments`
+  - `GET /payment`
   - **Response (List):**
     ```json
     [
@@ -97,54 +97,54 @@ URI는 "무엇을(What)"에 집중해야 합니다. "어떻게(How)"에 해당�
     ]
     ```
 
-- **비교:** `GET /payments/T01` (단일 객체 `{ "pay_id": "T01", ... }` 반환)
+- **비교:** `GET /payment/T01` (단일 객체 `{ "pay_id": "T01", ... }` 반환)
 
 ---
 
-### 4. Meta-Classifier (attrs, methods, events) 활용
+### 4. Meta-Classifier (attr, method, event) 활용
 
 이 원칙은 단순한 데이터 필드(Field)와 비즈니스 로직(Action), 그리고 상태 변화(History)를 명확히 분리하여 API의 성격을 직관적으로 드러내는 데 목적이 있습니다.
 
 자원의 식별자(Identifier) 뒤에 오는 메타 분류어는 해당 API가 어떤 성격의 데이터를 다루는지 정의하는 '이정표' 역할을 합니다.
 
-#### 1. attrs (Attributes): 상태 및 구성 정보의 분리
+#### 1. attr (Attributes): 상태 및 구성 정보의 분리
 
 자원 전체를 가져오는 대신, 객체의 **메타 데이터나 설정값, 권한 상태** 등 특정 속성 그룹만 조회/수정할 때 사용합니다. 이는 무거운 객체 전체를 주고받는 비용을 줄여줍니다.
 
 - **Example (사용자 설정):**
-  - `GET /members/m_123/attrs` : 사용자의 프로필 사진, 마케팅 수신 동의 여부, 언어 설정 등 '속성'만 조회.
-  - `PATCH /members/m_123/attrs` : 특정 속성(예: 다크모드 활성화)만 업데이트.
+  - `GET /member/m_123/attr` : 사용자의 프로필 사진, 마케팅 수신 동의 여부, 언어 설정 등 '속성'만 조회.
+  - `PATCH /member/m_123/attr` : 특정 속성(예: 다크모드 활성화)만 업데이트.
 
 - **Example (디바이스 상태):**
-  - `GET /iot-devices/dev_88/attrs` : 기기의 현재 온도, 배터리 잔량, 연결 상태 등 동적인 속성값 확인.
+  - `GET /iot-device/dev_88/attr/battery` : 특정 속성 그룹 조회 — 기기의 현재 배터리 잔량 확인.
 
-#### 2. methods (Functional Actions): 단순 CRUD 이상의 비즈니스 로직
+#### 2. method (Functional Actions): 단순 CRUD 이상의 비즈니스 로직
 
-REST는 기본적으로 자원의 상태를 다루지만, 실제 서비스에서는 **'승인', '복구', '전송'** 등 단순한 필드 수정으로 표현하기 어려운 복잡한 비즈니스 프로세스가 존재합니다. 이를 `methods` 뒤에 명시하여 행위를 명확히 합니다.
+REST는 기본적으로 자원의 상태를 다루지만, 실제 서비스에서는 **'승인', '복구', '전송'** 등 단순한 필드 수정으로 표현하기 어려운 복잡한 비즈니스 프로세스가 존재합니다. 이를 `method` 뒤에 명시하여 행위를 명확히 합니다.
 
 - **Example (결제 및 주문 프로세스):**
-  - `POST /payments/pay_abc/methods/approve` : 결제 승인 로직 실행.
-  - `POST /orders/ord_555/methods/calculate-tax` : 세금 계산 로직 호출 (결과값만 반환).
+  - `POST /payment/pay_abc/method/approve` : 결제 승인 로직 실행.
+  - `POST /order/ord_555/method/calculate-tax` : 세금 계산 로직 호출 (결과값만 반환).
 
 - **Example (계정 보안):**
-  - `POST /accounts/u_789/methods/lock` : 보안 위협으로 인한 계정 강제 잠금.
-  - `POST /accounts/u_789/methods/unlock` : 본인 인증 후 계정 잠금 해제.
+  - `POST /account/u_789/method/lock` : 보안 위협으로 인한 계정 강제 잠금.
+  - `POST /account/u_789/method/unlock` : 본인 인증 후 계정 잠금 해제.
 
-#### 3. events (Lifecycle & Audit Logs): 시간 흐름에 따른 상태 변화
+#### 3. event (Lifecycle & Audit Logs): 시간 흐름에 따른 상태 변화
 
-자원은 시간에 따라 변합니다. `events`는 특정 자원에 발생한 **사건의 기록(History)**을 추적할 때 사용합니다.
+자원은 시간에 따라 변합니다. `event`는 특정 자원에 발생한 **사건의 기록(History)**을 추적할 때 사용합니다.
 
 - **Example (배송 추적):**
-  - `GET /deliveries/deliv_99/events` : [집하 완료 -> 허브 도착 -> 배송 출발 -> 완료]로 이어지는 타임라인 로그 전체 조회.
+  - `GET /delivery/deliv_99/event` : [집하 완료 -> 허브 도착 -> 배송 출발 -> 완료]로 이어지는 타임라인 로그 전체 조회.
 
 - **Example (문서 변경 이력):**
-  - `GET /documents/doc_001/events` : 누가, 언제 이 문서를 수정하거나 조회했는지에 대한 감사 로그(Audit Log).
+  - `GET /document/doc_001/event` : 누가, 언제 이 문서를 수정하거나 조회했는지에 대한 감사 로그(Audit Log).
 
 - **Example (에러 로그):**
-  - `GET /servers/srv_10/events` : 해당 서버에서 발생한 시스템 이벤트 및 에러 발생 이력.
+  - `GET /server/srv_10/event` : 해당 서버에서 발생한 시스템 이벤트 및 에러 발생 이력.
 
 - **Example (이벤트 기록):**
-  - `POST /projects/proj_42/events` : 외부에서 발생한 사건(예: 배포, 수동 상태 변경 등)을 프로젝트 타임라인에 기록.
+  - `POST /project/proj_42/event/deployment` : 배포 사건을 프로젝트 타임라인에 기록.
 
 ---
 
@@ -153,10 +153,10 @@ REST는 기본적으로 자원의 상태를 다루지만, 실제 서비스에서
 데이터의 본질적인 위치(Path)는 유지하되, 보여주는 방식만 바꿀 때 사용합니다.
 
 - **Filtering (조건 검색):**
-  - `/tickets?status=open&priority=high` (상태가 open이고 우선순위가 높은 티켓만 검색)
+  - `/ticket?status=open&priority=high` (상태가 open이고 우선순위가 높은 티켓만 검색)
 
 - **Sorting (정렬):**
-  - `/products?sort=price_asc` (가격 낮은 순 정렬)
+  - `/product?sort=price_asc` (가격 낮은 순 정렬)
 
 - **Pagination (구간 조회):**
-  - `/logs?offset=20&limit=10` (21번째 로그부터 10개만 가져오기)
+  - `/log?offset=20&limit=10` (21번째 로그부터 10개만 가져오기)

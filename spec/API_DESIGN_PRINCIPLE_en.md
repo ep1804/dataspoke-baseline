@@ -36,7 +36,7 @@ When requesting a list of fruits, this example separates the `fruits` resource f
 
 ```json
 {
-    // Content: the requested resource data (list response for a plural-form path)
+    // Content: the requested resource data (list response for a collection path)
     "fruits": [
          {"name": "apple", "count": 5},
          {"name": "banana", "count": 3}
@@ -64,9 +64,9 @@ URIs should focus on "What". The verb — "How" — is handled by the HTTP metho
   - `DELETE /delete-post/42`
 
 - **Good (Resource-based):**
-  - `POST /users` (create a user)
-  - `GET /orders` (retrieve order list)
-  - `DELETE /posts/42` (delete post #42)
+  - `POST /user` (create a user)
+  - `GET /order` (retrieve order list)
+  - `DELETE /post/42` (delete post #42)
 
 ---
 
@@ -76,19 +76,19 @@ Use a hierarchical structure to clearly distinguish a resource's parent scope fr
 
 - **Structure:** `/{classifier}/{identifier}/{sub-classifier}/{identifier}`
 - **Example (e-commerce review system):**
-  - `/products` (full product list)
-  - `/products/p001` (the specific product with ID p001)
-  - `/products/p001/reviews` (all reviews for product p001)
-  - `/products/p001/reviews/rev99` (the specific review with ID rev99 under product p001)
+  - `/product` (full product list)
+  - `/product/p001` (the specific product with ID p001)
+  - `/product/p001/review` (all reviews for product p001)
+  - `/product/p001/review/rev99` (the specific review with ID rev99 under product p001)
 
 ---
 
-### 3. A plural-form path must return a list (Collection) response
+### 3. Collection vs Single Resource
 
-When a path ends in a plural form (`.../s`), clients must always be able to expect an array (`[]`) response.
+A resource path without an identifier returns a collection (list); a path with an identifier returns a single object.
 
 - **Example (payment history):**
-  - `GET /payments`
+  - `GET /payment`
   - **Response (List):**
     ```json
     [
@@ -97,54 +97,54 @@ When a path ends in a plural form (`.../s`), clients must always be able to expe
     ]
     ```
 
-- **Contrast:** `GET /payments/T01` (returns a single object `{ "pay_id": "T01", ... }`)
+- **Contrast:** `GET /payment/T01` (returns a single object `{ "pay_id": "T01", ... }`)
 
 ---
 
-### 4. Use Meta-Classifiers (attrs, methods, events)
+### 4. Use Meta-Classifiers (attr, method, event)
 
 The purpose of this principle is to clearly separate plain data fields (Field), business logic (Action), and state changes (History), making the nature of each API self-evident.
 
 A meta-classifier placed after a resource identifier acts as a signpost, defining what kind of data the API is working with.
 
-#### 1. attrs (Attributes): Separating state and configuration
+#### 1. attr (Attributes): Separating state and configuration
 
 Use this when you want to read or update only a specific group of attributes — such as **metadata, configuration values, or permission states** — rather than fetching the entire resource object. This reduces the overhead of transferring heavy objects in full.
 
 - **Example (user settings):**
-  - `GET /members/m_123/attrs` : Retrieve only 'attribute' fields such as profile photo, marketing consent, and language preference.
-  - `PATCH /members/m_123/attrs` : Update only a specific attribute (e.g., enabling dark mode).
+  - `GET /member/m_123/attr` : Retrieve only 'attribute' fields such as profile photo, marketing consent, and language preference.
+  - `PATCH /member/m_123/attr` : Update only a specific attribute (e.g., enabling dark mode).
 
 - **Example (device state):**
-  - `GET /iot-devices/dev_88/attrs` : Check dynamic attribute values such as current temperature, battery level, and connection status.
+  - `GET /iot-device/dev_88/attr/battery` : Check a specific attribute group — the device's current battery level.
 
-#### 2. methods (Functional Actions): Business logic beyond simple CRUD
+#### 2. method (Functional Actions): Business logic beyond simple CRUD
 
-REST fundamentally deals with resource state, but real-world services have complex business processes — such as **approval, recovery, or dispatch** — that are hard to express as simple field updates. Placing these after `methods` makes the intended action explicit.
+REST fundamentally deals with resource state, but real-world services have complex business processes — such as **approval, recovery, or dispatch** — that are hard to express as simple field updates. Placing these after `method` makes the intended action explicit.
 
 - **Example (payment and order process):**
-  - `POST /payments/pay_abc/methods/approve` : Execute payment approval logic.
-  - `POST /orders/ord_555/methods/calculate-tax` : Invoke tax calculation logic (returns the result only).
+  - `POST /payment/pay_abc/method/approve` : Execute payment approval logic.
+  - `POST /order/ord_555/method/calculate-tax` : Invoke tax calculation logic (returns the result only).
 
 - **Example (account security):**
-  - `POST /accounts/u_789/methods/lock` : Force-lock an account due to a security threat.
-  - `POST /accounts/u_789/methods/unlock` : Unlock an account after identity verification.
+  - `POST /account/u_789/method/lock` : Force-lock an account due to a security threat.
+  - `POST /account/u_789/method/unlock` : Unlock an account after identity verification.
 
-#### 3. events (Lifecycle & Audit Logs): State changes over time
+#### 3. event (Lifecycle & Audit Logs): State changes over time
 
-Resources change over time. Use `events` to track the **history of occurrences** on a specific resource.
+Resources change over time. Use `event` to track the **history of occurrences** on a specific resource.
 
 - **Example (delivery tracking):**
-  - `GET /deliveries/deliv_99/events` : Retrieve the full timeline log: [Picked up -> Hub arrived -> Out for delivery -> Delivered].
+  - `GET /delivery/deliv_99/event` : Retrieve the full timeline log: [Picked up -> Hub arrived -> Out for delivery -> Delivered].
 
 - **Example (document change history):**
-  - `GET /documents/doc_001/events` : Audit log of who modified or accessed this document and when.
+  - `GET /document/doc_001/event` : Audit log of who modified or accessed this document and when.
 
 - **Example (error log):**
-  - `GET /servers/srv_10/events` : History of system events and errors that occurred on the server.
+  - `GET /server/srv_10/event` : History of system events and errors that occurred on the server.
 
 - **Example (posting an event):**
-  - `POST /projects/proj_42/events` : Record an external occurrence (e.g., a deployment or a manual status change) against the project timeline.
+  - `POST /project/proj_42/event/deployment` : Record a deployment occurrence against the project timeline.
 
 ---
 
@@ -153,10 +153,10 @@ Resources change over time. Use `events` to track the **history of occurrences**
 Use query parameters to change how data is presented while keeping the resource's canonical path intact.
 
 - **Filtering:**
-  - `/tickets?status=open&priority=high` (return only open, high-priority tickets)
+  - `/ticket?status=open&priority=high` (return only open, high-priority tickets)
 
 - **Sorting:**
-  - `/products?sort=price_asc` (sort by price, ascending)
+  - `/product?sort=price_asc` (sort by price, ascending)
 
 - **Pagination:**
-  - `/logs?offset=20&limit=10` (retrieve 10 entries starting from the 21st)
+  - `/log?offset=20&limit=10` (retrieve 10 entries starting from the 21st)
