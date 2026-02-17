@@ -1,6 +1,6 @@
 # API Design Principle
 
-This document outlines several specific principles related to REST API design, particularly URI structure. These principles apply to all APIs developed in this project.
+This document defines the standard principles for RESTful API design. Follow these guidelines as the default, but exceptions are acceptable when justified by specific technical requirements.
 
 ---
 
