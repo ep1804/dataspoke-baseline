@@ -132,7 +132,7 @@ REST fundamentally deals with resource state, but real-world services have compl
 
 #### 3. events (Lifecycle & Audit Logs): State changes over time
 
-Resources change over time. Use `events` to track the **history of occurrences** on a specific resource; it is primarily used as read-only.
+Resources change over time. Use `events` to track the **history of occurrences** on a specific resource.
 
 - **Example (delivery tracking):**
   - `GET /deliveries/deliv_99/events` : Retrieve the full timeline log: [Picked up -> Hub arrived -> Out for delivery -> Delivered].
@@ -142,6 +142,9 @@ Resources change over time. Use `events` to track the **history of occurrences**
 
 - **Example (error log):**
   - `GET /servers/srv_10/events` : History of system events and errors that occurred on the server.
+
+- **Example (posting an event):**
+  - `POST /projects/proj_42/events` : Record an external occurrence (e.g., a deployment or a manual status change) against the project timeline.
 
 ---
 
