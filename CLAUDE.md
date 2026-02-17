@@ -74,6 +74,7 @@ alembic upgrade head  # Apply DB migrations
 ## Key Design Decisions
 
 - **API-first**: OpenAPI specs live in `api/` as standalone artifacts so AI agents and frontend can iterate without a running backend
+- **API Design Principle**: All REST APIs must follow `spec/API_DESIGN_PRINCIPLE_en.md` — covers URI structure, request/response format, content/metadata separation, meta-classifiers (`attrs`, `methods`, `events`), and query parameter conventions
 - **Temporal over Airflow**: better for long-running workflows, easier testing; use Airflow only if existing infrastructure demands it
 - **Qdrant over Pinecone**: self-hostable, Rust-based performance; consider Weaviate only for multi-tenancy requirements
 - **PostgreSQL over MongoDB**: ACID guarantees for ingestion configs, quality results, health scores
@@ -84,15 +85,16 @@ The `spec/` directory is hierarchical. **`MANIFESTO_en.md` / `MANIFESTO_kr.md` a
 
 ```
 spec/
-├── MANIFESTO_en.md / MANIFESTO_kr.md  ← Highest authority. Never modify.
-├── ARCHITECTURE.md                     ← System-wide architecture overview.
-├── AI_SCAFFOLD.md                      ← Claude Code scaffold: Goal 2 of the project.
-├── USE_CASE.md                         ← Conceptual scenarios (vision/ideation).
-├── feature/                            ← Deep-dive specs for MAJOR features.
-│   │                                     Timeless reference format. No dates/logs.
+├── MANIFESTO_en.md / MANIFESTO_kr.md          ← Highest authority. Never modify.
+├── ARCHITECTURE.md                             ← System-wide architecture overview.
+├── AI_SCAFFOLD.md                              ← Claude Code scaffold: Goal 2 of the project.
+├── USE_CASE.md                                 ← Conceptual scenarios (vision/ideation).
+├── API_DESIGN_PRINCIPLE_en.md / _kr.md         ← REST API conventions. Apply to all APIs.
+├── feature/                                    ← Deep-dive specs for MAJOR features.
+│   │                                             Timeless reference format. No dates/logs.
 │   └── <FEATURE>.md
-└── plan/                               ← Specs for MINOR changes and decisions.
-    │                                     Chronological log style, newest-first.
+└── plan/                                       ← Specs for MINOR changes and decisions.
+    │                                             Chronological log style, newest-first.
     └── <TOPIC>.md
 ```
 

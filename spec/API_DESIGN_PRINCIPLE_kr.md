@@ -1,0 +1,159 @@
+# API Design Principle
+
+REST API 설계와 관련하여 몇가지 세부적인 원칙을 제시한다. 본 프로젝트에서 개발하는 API에 적용한다.
+
+---
+
+## 1. Standard Request & Response Formats
+
+### 1. Basic Guide
+
+요청 시에는 서버가 자원을 정확히 식별하고 처리할 수 있도록 다음 표준을 준수합니다.
+
+- **Content-Type 명시:** 모든 쓰기 요청(POST, PUT, PATCH) 시 헤더에 `Content-Type: application/json`을 명시합니다.
+- **UTF-8 인코딩:** 데이터의 깨짐을 방지하기 위해 반드시 UTF-8 인코딩을 사용합니다.
+- **필드 네이밍 컨벤션:** URI와 마찬가지로 Request Body의 필드명은 일관성을 유지합니다 (예: `snake_case` 또는 `camelCase` 중 팀 표준 선택).
+- **날짜/시간 형식:** ISO 8601 표준(`YYYY-MM-DDTHH:mm:ssZ`)을 사용하여 타임존 혼선이 없도록 합니다.
+
+### 2. Response Format Guide
+
+응답은 클라이언트가 성공 여부를 즉시 파악하고, 데이터를 쉽게 파싱할 수 있는 구조여야 합니다.
+
+- **HTTP Status Code 활용:** 응답 상태를 단순히 JSON 바디에 담지 말고, 적절한 HTTP 상태 코드(200 OK, 201 Created, 400 Bad Request, 404 Not Found 등)를 선행하여 전달합니다.
+- **에러 응답의 표준화:** 에러 발생 시 일관된 에러 객체를 반환합니다.
+  - 예: `{"error_code": "INVALID_PARAMETER", "message": "The 'count' field must be an integer."}`
+
+### 3. Separation of Content and Metadata
+
+응답 바디 내에서는 **클라이언트가 실질적으로 요청한 데이터(Content)**와 **시스템 처리를 위한 정보(Metadata)**를 명확히 분리합니다. 이를 통해 클라이언트는 핵심 데이터 모델과 부가 정보를 독립적으로 처리할 수 있습니다.
+
+- **Content (요구된 정보):** 비즈니스 로직 상 핵심이 되는 자원(Resource) 데이터입니다.
+- **Metadata (메타 정보):** 페이지네이션 정보, 응답 시간, API 버전, 추적 ID(Trace ID) 등을 포함합니다.
+
+#### Best Practice Example
+
+과일 목록을 요청했을 때, 자원인 `fruits`와 그 외의 제어 정보를 분리한 모범 사례입니다.
+
+```json
+{
+    // Content: 요구된 자원 정보 (복수형 path에 대응하는 리스트 응답)
+    "fruits": [
+         {"name": "apple", "count": 5},
+         {"name": "banana", "count": 3}
+    ],
+
+    // Metadata: 제어 및 부가 정보
+    "offset": 5,
+    "limit": 2,
+    "total_count": 30,
+    "resp_time": "2026-01-01T13:14:15.123+09:00"
+}
+```
+
+---
+
+## 2. Standard URI Structure
+
+### 1. 자원(Resource)은 반드시 '명사형'을 사용한다
+
+URI는 "무엇을(What)"에 집중해야 합니다. "어떻게(How)"에 해당하는 동사는 HTTP Method로 처리합니다.
+
+- **Bad (Action-based):**
+  - `POST /createNewUser`
+  - `GET /get_order_list`
+  - `DELETE /delete-post/42`
+
+- **Good (Resource-based):**
+  - `POST /users` (사용자 생성)
+  - `GET /orders` (주문 목록 조회)
+  - `DELETE /posts/42` (42번 게시글 삭제)
+
+---
+
+### 2. Classifier / Identifier 구조를 준수한다
+
+계층 구조를 통해 자원의 소속과 식별자를 명확히 구분합니다.
+
+- **구조:** `/{대분류}/{식별자}/{소분류}/{식별자}`
+- **Example (쇼핑몰 리뷰 시스템):**
+  - `/products` (상품 전체 목록)
+  - `/products/p001` (ID가 p001인 특정 상품)
+  - `/products/p001/reviews` (p001 상품에 달린 리뷰 전체 목록)
+  - `/products/p001/reviews/rev99` (p001 상품의 리뷰 중 ID가 rev99인 특정 리뷰)
+
+---
+
+### 3. 복수형 Path 뒤에는 리스트(Collection) 응답을 반환한다
+
+경로의 끝이 복수형(`.../s`)으로 끝나면 클라이언트는 항상 배열(`[]`) 형태의 응답을 기대할 수 있어야 합니다.
+
+- **Example (결제 내역 조회):**
+  - `GET /payments`
+  - **Response (List):**
+    ```json
+    [
+      { "pay_id": "T01", "amount": 5000 },
+      { "pay_id": "T02", "amount": 12000 }
+    ]
+    ```
+
+- **비교:** `GET /payments/T01` (단일 객체 `{ "pay_id": "T01", ... }` 반환)
+
+---
+
+### 4. Meta-Classifier (attrs, methods, events) 활용
+
+이 원칙은 단순한 데이터 필드(Field)와 비즈니스 로직(Action), 그리고 상태 변화(History)를 명확히 분리하여 API의 성격을 직관적으로 드러내는 데 목적이 있습니다.
+
+자원의 식별자(Identifier) 뒤에 오는 메타 분류어는 해당 API가 어떤 성격의 데이터를 다루는지 정의하는 '이정표' 역할을 합니다.
+
+#### 1. attrs (Attributes): 상태 및 구성 정보의 분리
+
+자원 전체를 가져오는 대신, 객체의 **메타 데이터나 설정값, 권한 상태** 등 특정 속성 그룹만 조회/수정할 때 사용합니다. 이는 무거운 객체 전체를 주고받는 비용을 줄여줍니다.
+
+- **Example (사용자 설정):**
+  - `GET /members/m_123/attrs` : 사용자의 프로필 사진, 마케팅 수신 동의 여부, 언어 설정 등 '속성'만 조회.
+  - `PATCH /members/m_123/attrs` : 특정 속성(예: 다크모드 활성화)만 업데이트.
+
+- **Example (디바이스 상태):**
+  - `GET /iot-devices/dev_88/attrs` : 기기의 현재 온도, 배터리 잔량, 연결 상태 등 동적인 속성값 확인.
+
+#### 2. methods (Functional Actions): 단순 CRUD 이상의 비즈니스 로직
+
+REST는 기본적으로 자원의 상태를 다루지만, 실제 서비스에서는 **'승인', '복구', '전송'** 등 단순한 필드 수정으로 표현하기 어려운 복잡한 비즈니스 프로세스가 존재합니다. 이를 `methods` 뒤에 명시하여 행위를 명확히 합니다.
+
+- **Example (결제 및 주문 프로세스):**
+  - `POST /payments/pay_abc/methods/approve` : 결제 승인 로직 실행.
+  - `POST /orders/ord_555/methods/calculate-tax` : 세금 계산 로직 호출 (결과값만 반환).
+
+- **Example (계정 보안):**
+  - `POST /accounts/u_789/methods/lock` : 보안 위협으로 인한 계정 강제 잠금.
+  - `POST /accounts/u_789/methods/unlock` : 본인 인증 후 계정 잠금 해제.
+
+#### 3. events (Lifecycle & Audit Logs): 시간 흐름에 따른 상태 변화
+
+자원은 시간에 따라 변합니다. `events`는 특정 자원에 발생한 **사건의 기록(History)**을 추적할 때 사용하며, 주로 읽기 전용(Read-only)으로 활용됩니다.
+
+- **Example (배송 추적):**
+  - `GET /deliveries/deliv_99/events` : [집하 완료 -> 허브 도착 -> 배송 출발 -> 완료]로 이어지는 타임라인 로그 전체 조회.
+
+- **Example (문서 변경 이력):**
+  - `GET /documents/doc_001/events` : 누가, 언제 이 문서를 수정하거나 조회했는지에 대한 감사 로그(Audit Log).
+
+- **Example (에러 로그):**
+  - `GET /servers/srv_10/events` : 해당 서버에서 발생한 시스템 이벤트 및 에러 발생 이력.
+
+---
+
+### 5. URL Query Segments는 '필터링/정렬' 용도로 사용한다
+
+데이터의 본질적인 위치(Path)는 유지하되, 보여주는 방식만 바꿀 때 사용합니다.
+
+- **Filtering (조건 검색):**
+  - `/tickets?status=open&priority=high` (상태가 open이고 우선순위가 높은 티켓만 검색)
+
+- **Sorting (정렬):**
+  - `/products?sort=price_asc` (가격 낮은 순 정렬)
+
+- **Pagination (구간 조회):**
+  - `/logs?offset=20&limit=10` (21번째 로그부터 10개만 가져오기)

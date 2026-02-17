@@ -156,6 +156,8 @@ API documentation exists as **standalone artifacts** in a separate directory:
 - **Purpose 2**: Allow API documentation and testing without running backend
 - **Format**: OpenAPI 3.0 specification + human-readable markdown
 
+**API Design Principle**: All REST APIs developed in this project must conform to the conventions defined in `spec/API_DESIGN_PRINCIPLE_en.md`. This covers URI structure, request/response format, content/metadata separation, meta-classifiers (`attrs`, `methods`, `events`), and query parameter usage.
+
 ### 3. DataHub Integration Strategy
 
 **Read Operations**:

@@ -12,16 +12,23 @@ Your job is to produce OpenAPI 3.0 YAML specs and companion markdown docs in `ap
 ## Before writing anything
 
 1. Read `spec/ARCHITECTURE.md` to understand the API layer design, auth model, and data flows.
-2. Scan `api/` with Glob to find existing specs and maintain consistency.
+2. Read `spec/API_DESIGN_PRINCIPLE_en.md` — this is the **mandatory REST API convention** for the project. All URI structures, request/response formats, and naming rules must conform to it.
+3. Scan `api/` with Glob to find existing specs and maintain consistency.
 
 ## Design rules
 
-- Resource-oriented URLs, standard HTTP verbs, versioned under `/api/v1/`
-- Plural nouns for collections: `/datasets`, `/quality-rules`, `/connectors`
-- Pagination on all list endpoints using `limit` (default 20, max 100) and `offset`
-- snake_case for all JSON field names (Pydantic default)
-- Every path must document 400, 401, 403, 404, 422, and 500 responses
-- Reusable schemas go in `components/schemas`
+All rules below are derived from `spec/API_DESIGN_PRINCIPLE_en.md`. That document is the authoritative reference.
+
+- **Noun-only URIs**: use resource nouns, never verbs; HTTP method expresses the action
+- **Hierarchical paths**: `/{classifier}/{id}/{sub-classifier}/{id}` (e.g., `/datasets/ds_001/quality-rules`)
+- **Plural path → list response**: a plural-form path always returns an array; a singular path (with ID) returns a single object
+- **Meta-classifiers**: use `attrs` for attribute groups, `methods` for business actions beyond CRUD, `events` for audit/lifecycle history (e.g., `/connectors/c_01/methods/test`, `/ingestion-runs/r_99/events`)
+- **Query params for filtering/sorting/pagination**: `limit` (default 20, max 100), `offset`, `sort`, filter fields — never encode these in the path
+- **snake_case** for all JSON field names (Pydantic default)
+- **Content/Metadata separation**: list responses wrap the resource array under a named key and include pagination metadata at the top level (see `spec/API_DESIGN_PRINCIPLE_en.md` §1.3)
+- **HTTP status codes**: use proper codes rather than embedding status in the body; every path must document 400, 401, 403, 404, 422, and 500
+- **ISO 8601** for all date/time fields; `Content-Type: application/json` on all write requests
+- Reusable schemas go in `components/schemas`; versioned under `/api/v1/`
 
 ## Output
 
