@@ -105,7 +105,7 @@ A resource path without an identifier returns a collection (list); a path with a
 
 The purpose of this principle is to clearly separate plain data fields (Field), business logic (Action), and state changes (History), making the nature of each API self-evident.
 
-A meta-classifier placed after a resource identifier acts as a signpost, defining what kind of data the API is working with.
+This approach is not mandatory, but is useful for organizing when many features or characteristics come after a resource identifier.
 
 #### 1. attr (Attributes): Separating state and configuration
 
