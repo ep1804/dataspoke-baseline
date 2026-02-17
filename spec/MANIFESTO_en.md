@@ -43,6 +43,7 @@ The name **DataSpoke** comes from treating the existing DataHub as the Hub, and 
 
 ### Ingestion
 
+* **Configuration and Orchestration of Ingestion**: Register and manage ingestion configurations for selected metadata, updating them through built-in orchestration.
 * **Python-based Custom Ingestion**: Flexible access to legacy and unstructured data sources.
 
 ### Quality Control

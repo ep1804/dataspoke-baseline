@@ -16,6 +16,7 @@ This document provides detailed, real-world scenarios demonstrating how DataSpok
 | [Use Case 3: Knowledge Base — Semantic Data Discovery](#use-case-3-knowledge-base--semantic-data-discovery) | Knowledge Base & Verifier | Semantic Search API |
 | [Use Case 4: Self-Purifier — Metadata Health Monitoring](#use-case-4-self-purifier--metadata-health-monitoring) | Self-Purifier | Documentation Auditor + Health Score Dashboard |
 | [Use Case 5: Self-Purification — AI-Driven Ontology Design](#use-case-5-self-purification--ai-driven-ontology-design) | Self-Purifier | Self-Purification capability (§1.1) |
+| [Use Case 6: Ingestion — Legacy System Metadata Integration](#use-case-6-ingestion--legacy-system-metadata-integration) | Ingestion | Configuration and Orchestration of Ingestion + Python-based Custom Ingestion |
 
 ---
 
@@ -809,6 +810,413 @@ Catalog AI-Readiness Score: 89/100
 
 ---
 
+## Use Case 6: Ingestion — Legacy System Metadata Integration
+
+### Scenario: Ingesting Metadata from a Legacy Oracle Data Warehouse
+
+**Background:**
+A financial services company has a 15-year-old Oracle data warehouse containing 200+ critical tables and stored procedures that power regulatory reporting. This legacy system predates DataHub adoption and uses custom documentation stored in Confluence pages, Excel spreadsheets, and tribal knowledge. Standard DataHub connectors can extract basic schema information but miss critical business context, data lineage from stored procedures, and custom data quality rules embedded in application logic.
+
+#### Traditional DataHub Connector Limitations
+
+```
+Standard Oracle Connector Output:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✓ Schema extracted: 200 tables
+✓ Column types: Captured
+✓ Primary keys: Detected
+
+✗ Business descriptions: Missing (stored in Confluence)
+✗ Data quality rules: Missing (embedded in PL/SQL)
+✗ Stored procedure lineage: Not supported
+✗ Regulatory tags: Missing (tracked in Excel)
+✗ Update schedules: Missing (managed by legacy scheduler)
+✗ Data owners: Missing (HR system)
+
+Result: 200 tables in DataHub with technical metadata only
+Impact: Data consumers cannot determine which tables are safe to use
+```
+
+#### DataSpoke Custom Ingestion Solution
+
+**Step 1: Register Ingestion Configuration**
+
+```python
+# Data engineer registers a custom ingestion config via DataSpoke UI
+# or API
+
+dataspoke.ingestion.register_config({
+  "name": "oracle_legacy_warehouse_enriched",
+  "source_type": "oracle",
+  "schedule": "0 2 * * *",  # Daily at 2 AM
+
+  "connection": {
+    "host": "legacy-oracle-prod.company.internal",
+    "port": 1521,
+    "service": "DWPROD",
+    "credential_ref": "vault://oracle/dwprod"
+  },
+
+  "enrichment_sources": [
+    {
+      "type": "confluence",
+      "space": "DATA_DICTIONARY",
+      "page_prefix": "Table: ",
+      "fields_mapping": {
+        "description": "confluence.content.body",
+        "business_owner": "confluence.labels.owner",
+        "pii_classification": "confluence.labels.pii"
+      }
+    },
+    {
+      "type": "excel",
+      "path": "s3://company-docs/data-catalog/regulatory-tags.xlsx",
+      "sheet": "Table Classifications",
+      "key_column": "table_name",
+      "fields_mapping": {
+        "regulatory_domain": "Domain",
+        "retention_years": "Retention",
+        "sox_compliant": "SOX_Flag"
+      }
+    },
+    {
+      "type": "custom_api",
+      "endpoint": "https://hr-api.company.internal/data-owners",
+      "auth": "bearer_token",
+      "fields_mapping": {
+        "owner_email": "$.owner.email",
+        "owner_team": "$.owner.department"
+      }
+    }
+  ],
+
+  "custom_extractors": [
+    {
+      "name": "plsql_lineage_parser",
+      "type": "python_function",
+      "module": "dataspoke.custom.oracle_lineage",
+      "function": "extract_stored_proc_lineage",
+      "params": {
+        "parse_insert_select": true,
+        "parse_merge_statements": true
+      }
+    },
+    {
+      "name": "quality_rule_extractor",
+      "type": "python_function",
+      "module": "dataspoke.custom.oracle_quality",
+      "function": "extract_check_constraints_as_rules"
+    }
+  ],
+
+  "orchestration": {
+    "retry_policy": {
+      "max_attempts": 3,
+      "backoff_seconds": 300
+    },
+    "notification": {
+      "on_failure": ["data-platform@company.com"],
+      "on_success_after_failure": ["data-platform@company.com"]
+    },
+    "monitoring": {
+      "track_row_counts": true,
+      "alert_on_schema_change": true
+    }
+  }
+})
+```
+
+**Response:**
+```json
+{
+  "config_id": "ing_oracle_001",
+  "status": "registered",
+  "next_run": "2024-02-10T02:00:00Z",
+  "validation": {
+    "connection_test": "passed",
+    "confluence_access": "passed",
+    "excel_file_readable": "passed",
+    "hr_api_accessible": "passed",
+    "custom_extractors_loaded": "passed"
+  }
+}
+```
+
+**Step 2: Python-Based Custom Extractor Implementation**
+
+```python
+# dataspoke/custom/oracle_lineage.py
+# Custom extractor for parsing stored procedure lineage
+
+from typing import List, Dict
+import sqlparse
+from dataspoke.ingestion import CustomExtractor, LineageEdge
+
+class OraclePLSQLLineageExtractor(CustomExtractor):
+    """
+    Extracts data lineage from Oracle PL/SQL stored procedures.
+    Standard DataHub Oracle connector doesn't parse procedural code.
+    """
+
+    def extract_stored_proc_lineage(
+        self,
+        procedure_name: str,
+        procedure_body: str,
+        params: Dict
+    ) -> List[LineageEdge]:
+        """
+        Parse PL/SQL to extract INSERT...SELECT and MERGE lineage
+        """
+        lineage_edges = []
+
+        # Parse SQL statements from procedure body
+        statements = sqlparse.parse(procedure_body)
+
+        for stmt in statements:
+            # Detect INSERT...SELECT patterns
+            if self._is_insert_select(stmt):
+                source_tables = self._extract_source_tables(stmt)
+                target_table = self._extract_target_table(stmt)
+
+                for source in source_tables:
+                    lineage_edges.append(LineageEdge(
+                        source_urn=f"urn:li:dataset:(urn:li:dataPlatform:oracle,{source},PROD)",
+                        target_urn=f"urn:li:dataset:(urn:li:dataPlatform:oracle,{target_table},PROD)",
+                        transformation_type="stored_procedure",
+                        transformation_logic=procedure_name,
+                        confidence_score=0.95
+                    ))
+
+            # Detect MERGE statements
+            if self._is_merge(stmt):
+                # Similar parsing logic for MERGE...
+                pass
+
+        return lineage_edges
+
+    def _extract_source_tables(self, stmt) -> List[str]:
+        """Extract source table references from FROM and JOIN clauses"""
+        # Implementation using sqlparse AST traversal
+        # Handles aliases, subqueries, CTEs
+        ...
+
+    def _extract_target_table(self, stmt) -> str:
+        """Extract target table from INSERT or MERGE"""
+        ...
+```
+
+**Step 3: First Ingestion Run — Enriched Metadata**
+
+```
+DataSpoke Ingestion Run: oracle_legacy_warehouse_enriched
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Run ID: run_20240210_020015
+Start: 2024-02-10 02:00:15
+Status: IN_PROGRESS
+
+Phase 1: Base Schema Extraction
+  ✓ Connected to Oracle DWPROD
+  ✓ Extracted 200 tables
+  ✓ Extracted 1,847 columns
+  ✓ Extracted 45 stored procedures
+  Duration: 3m 22s
+
+Phase 2: Enrichment — Confluence Documentation
+  ✓ Connected to Confluence space DATA_DICTIONARY
+  ✓ Found 182/200 matching documentation pages
+  ✓ Extracted business descriptions: 182 tables
+  ✓ Extracted PII tags: 67 tables
+  ✓ Extracted owner labels: 154 tables
+  Warnings: 18 tables missing Confluence docs
+  Duration: 1m 45s
+
+Phase 3: Enrichment — Regulatory Excel Mapping
+  ✓ Downloaded s3://company-docs/data-catalog/regulatory-tags.xlsx
+  ✓ Matched 200/200 tables by name
+  ✓ Applied regulatory domains: 200 tables
+  ✓ Applied retention policies: 200 tables
+  ✓ Applied SOX compliance flags: 89 tables
+  Duration: 24s
+
+Phase 4: Enrichment — HR API Ownership
+  ✓ Connected to HR API
+  ✓ Resolved owners for 154 tables (from Confluence tags)
+  ✓ Mapped to email addresses: 154/154
+  ✓ Mapped to teams/departments: 154/154
+  Warnings: 46 tables have no owner assigned
+  Duration: 42s
+
+Phase 5: Custom Extraction — PL/SQL Lineage
+  ✓ Loaded custom extractor: plsql_lineage_parser
+  ✓ Parsed 45 stored procedures
+  ✓ Detected INSERT...SELECT patterns: 38 procedures
+  ✓ Detected MERGE statements: 12 procedures
+  ✓ Generated lineage edges: 127 edges
+  ✓ Average confidence score: 0.93
+  Duration: 2m 18s
+
+Phase 6: Custom Extraction — Quality Rules
+  ✓ Loaded custom extractor: quality_rule_extractor
+  ✓ Extracted CHECK constraints: 234 rules
+  ✓ Converted to DataSpoke quality rules: 234/234
+  ✓ Applied to DataHub as quality aspects
+  Duration: 1m 05s
+
+Phase 7: DataHub Ingestion
+  ✓ Generated DataHub MCE events: 200 datasets
+  ✓ Emitted to DataHub GMS
+  ✓ Updated Knowledge Base vector index
+  ✓ Triggered Self-Purifier health scan
+  Duration: 1m 12s
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INGESTION COMPLETE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Total Duration: 10m 48s
+Tables Ingested: 200
+Enrichment Coverage: 91%
+Lineage Edges Added: 127
+Quality Rules Added: 234
+
+Warnings: 18 tables missing Confluence docs, 46 tables missing owners
+[View Detailed Report] [Schedule Next Run] [Configure Alerts]
+```
+
+**Step 4: Resulting DataHub Metadata — Enriched Entry Example**
+
+```yaml
+Dataset: regulatory_reports.monthly_capital_requirements
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Base Schema (Standard Oracle Connector)
+Platform: Oracle
+Database: DWPROD
+Schema: regulatory_reports
+Table: monthly_capital_requirements
+Columns: 47
+Primary Key: report_month, entity_id
+
+# Enriched — Business Context (from Confluence)
+Description: |
+  Monthly regulatory capital calculation for all banking entities.
+  Used for Basel III reporting to federal regulators.
+  Data aggregated from daily risk positions and validated against
+  general ledger.
+
+# Enriched — Ownership (from Confluence + HR API)
+Owner: sarah.chen@company.com
+Team: Risk & Compliance Analytics
+Contact: Slack: #team-risk-analytics
+
+# Enriched — Regulatory Classification (from Excel)
+Regulatory Domain: Basel III Capital Adequacy
+Retention Period: 7 years
+SOX Compliant: Yes
+Audit Frequency: Quarterly
+Regulatory Body: Federal Reserve / OCC
+
+# Enriched — PII Classification (from Confluence)
+PII Classification: None
+Contains Customer Data: No (aggregated only)
+
+# Enriched — Lineage (from PL/SQL Parser)
+Upstream (Generated by Stored Procedure):
+  ├─ risk_positions.daily_var_calculations
+  ├─ general_ledger.tier1_capital_summary
+  ├─ exposures.counterparty_risk_weighted_assets
+  └─ reference.basel_risk_weights
+
+  Generated By: PROC_CALCULATE_MONTHLY_CAPITAL (stored procedure)
+  Transformation: Aggregates daily risk positions, applies Basel III
+                  formulas, cross-validates with GL
+
+Downstream:
+  ├─ reports.regulatory_filing_fed_reserve
+  └─ dashboards.capital_adequacy_executive
+
+# Enriched — Quality Rules (from CHECK Constraints)
+Quality Rules (Auto-extracted):
+  1. total_capital_ratio >= 0.08  (Basel minimum)
+  2. report_month = LAST_DAY(report_month)  (month-end dates only)
+  3. tier1_capital IS NOT NULL
+  4. entity_id IN (SELECT entity_id FROM entities.active_banks)
+
+# Operational Metadata
+Last Updated: 2024-02-09 23:45:12
+Update Schedule: Monthly (5th business day)
+Freshness SLA: T+5 business days
+Data Volume: ~50 rows/month (one per entity)
+```
+
+**Step 5: Continuous Orchestration & Monitoring**
+
+```
+DataSpoke Ingestion Dashboard:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Configuration: oracle_legacy_warehouse_enriched
+Status: Active
+Schedule: Daily 02:00 AM UTC
+
+Last 7 Runs:
+┌────────────┬──────────┬──────────┬─────────────┬──────────┐
+│ Date       │ Status   │ Duration │ Tables      │ Warnings │
+├────────────┼──────────┼──────────┼─────────────┼──────────┤
+│ 2024-02-10 │ ✓ Success│ 10m 48s  │ 200/200     │ 18       │
+│ 2024-02-09 │ ✓ Success│ 10m 52s  │ 200/200     │ 18       │
+│ 2024-02-08 │ ✓ Success│ 10m 41s  │ 200/200     │ 19       │
+│ 2024-02-07 │ ⚠ Warning│ 11m 15s  │ 200/200     │ 22       │
+│ 2024-02-06 │ ✓ Success│ 10m 38s  │ 200/200     │ 18       │
+│ 2024-02-05 │ ✓ Success│ 10m 44s  │ 200/200     │ 17       │
+│ 2024-02-04 │ ✗ Failed │ 3m 12s   │ 0/200       │ N/A      │
+└────────────┴──────────┴──────────┴─────────────┴──────────┘
+
+Failure Detail (2024-02-04):
+  Phase: Enrichment — Confluence Documentation
+  Error: Connection timeout to confluence.company.internal
+  Action Taken: Auto-retry succeeded on attempt 2
+  Resolution: Transient network issue
+
+Health Metrics:
+  Enrichment Coverage Trend: 91% (stable)
+  Avg Run Duration: 10m 45s
+  Success Rate (30d): 96.7%
+  Tables Missing Docs: 18 (tracked)
+  Tables Missing Owners: 46 (decreasing from 52 last month)
+
+Alerts Configured:
+  ✓ Email on failure: data-platform@company.com
+  ✓ Slack notification on schema change detected
+  ✓ Weekly summary report to risk-analytics team
+```
+
+**Outcome:**
+- 📚 **Rich Metadata:** 200 legacy tables now have business context, ownership, regulatory tags, and quality rules
+- 🔗 **Hidden Lineage Revealed:** 127 lineage edges extracted from stored procedures (previously invisible)
+- ✅ **Automated Enrichment:** Daily orchestration keeps metadata fresh from multiple sources (Confluence, Excel, HR API)
+- 🔧 **Flexible Python Extractors:** Custom logic handles PL/SQL parsing and domain-specific rules
+- 📊 **Compliance Ready:** Regulatory metadata enables instant audit reports and GDPR impact analysis
+- ⚡ **Self-Service:** Data engineers register configs via UI; no manual metadata entry required
+
+**Before vs After Comparison:**
+
+| Aspect | Standard DataHub Connector | DataSpoke Custom Ingestion |
+|--------|---------------------------|---------------------------|
+| Schema Coverage | ✓ 200 tables | ✓ 200 tables |
+| Business Descriptions | ✗ 0% | ✓ 91% (182/200) |
+| Ownership Information | ✗ 0% | ✓ 77% (154/200) |
+| Regulatory Tags | ✗ 0% | ✓ 100% (200/200) |
+| Stored Proc Lineage | ✗ Not supported | ✓ 127 edges extracted |
+| Quality Rules | ✗ Manual entry only | ✓ 234 auto-extracted |
+| Update Frequency | Manual re-run | ⚙ Automated daily |
+| Setup Time | 1 hour (one-time) | 4 hours (one-time config) |
+| Ongoing Maintenance | High (manual updates) | Low (self-updating) |
+
+---
+
 ## Summary: Value Delivered
 
 | Use Case | Feature Group | Traditional Approach | With DataSpoke | Improvement |
@@ -818,6 +1226,7 @@ Catalog AI-Readiness Score: 89/100
 | **Semantic Data Discovery** | Knowledge Base & Verifier | 4-6 hours manual search | 2-5 minutes automated search | 98% time savings |
 | **Metadata Health Monitoring** | Self-Purifier | Quarterly manual audits (2 weeks) | Real-time continuous monitoring | 95% efficiency gain |
 | **AI-Driven Ontology Design** | Self-Purifier | 3-month manual reconciliation | Automated proposal in hours | Orders-of-magnitude faster |
+| **Legacy System Metadata Integration** | Ingestion | Manual metadata entry, no lineage | Automated enrichment from multiple sources | 91% enrichment coverage, 127 hidden lineage edges revealed |
 
 **Cross-cutting Benefits:**
 - 🤖 **AI-Ready:** Enables autonomous agents to work safely with production data

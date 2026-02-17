@@ -41,8 +41,9 @@ DataHub, Dataplex, OpenMetadata 등의 플랫폼은 방대한 기능을 제공�
 
 ## 2. 주요 기능
 
-### Ingestion (수집)
+### Ingestion (메타 수집)
 
+* **Configuration and Orchestration of Ingestion**: 일부 메타에 대해서는 메타 수집 설정을 등록하여 관리할 수 있으며, 자체 Orchestration으로 업데이트 한다.
 * **Python-based Custom Ingestion**: 레거시 및 비정형 데이터 소스에 대한 유연한 접근을 지원한다.
 
 ### Quality Control (품질 관리)
