@@ -21,13 +21,13 @@ spec/
 │
 └── plan/               ← Specs for MINOR changes and decisions.
     │                     Chronological log style. Each entry is dated.
-    └── <TOPIC>.md
+    └── YYYYMMDD_<topic>.md
 ```
 
 **Routing rules:**
 - Top-level `spec/` — project-wide documents only. Do NOT create new top-level files unless the topic affects the whole system and warrants an architectural-level document.
 - `spec/feature/` — major feature deep-dives (e.g. `INGESTION.md`, `SEMANTIC_SEARCH.md`, `SELF_PURIFIER.md`). Topics map to the four manifesto feature groups or their sub-features.
-- `spec/plan/` — minor changes, incremental decisions, implementation notes, rollout plans. Written as a living log where new entries are prepended. **File names must be `<YYYYMMDD>_<topic_slug>.md` — date-prefixed and fully lowercase with underscores** (e.g., `20260216_rewrite_plan.md`).
+- `spec/plan/` — minor changes, incremental decisions, implementation notes, rollout plans. Written as a living log where new entries are prepended. **File names must be `YYYYMMDD_<topic_slug>.md` — date-prefixed and fully lowercase with underscores** (e.g., `20260216_rewrite_plan.md`).
 
 ---
 
@@ -47,7 +47,7 @@ If writing about a specific feature, also check for an existing `spec/feature/<F
 | Destination | When to use | Document type |
 |-------------|-------------|---------------|
 | `spec/feature/<FEATURE>.md` | Major feature: Ingestion, Quality Control, Self-Purifier, Knowledge Base & Verifier, or a named sub-feature | Feature Spec (see template A) |
-| `spec/plan/<YYYYMMDD>_<topic>.md` | Minor change, ADR, implementation note, rollout plan, or anything with a specific date/milestone | Plan Log (see template B) |
+| `spec/plan/YYYYMMDD_<topic>.md` | Minor change, ADR, implementation note, rollout plan, or anything with a specific date/milestone | Plan Log (see template B) |
 | `spec/<DOC>.md` (top-level) | Only for project-wide topics that belong alongside MANIFESTO and ARCHITECTURE | Top-level spec (use template A without feature-group context) |
 
 ---
@@ -100,7 +100,7 @@ No version/date/author metadata block. This is a timeless reference document.
 
 ---
 
-## Template B — Plan Log (`spec/plan/<TOPIC>.md`)
+## Template B — Plan Log (`spec/plan/YYYYMMDD_<topic>.md`)
 
 Chronological log style. New entries go at the **top** (newest first).
 Each entry has a date header and structured content.

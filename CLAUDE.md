@@ -95,7 +95,7 @@ spec/
 │   └── <FEATURE>.md
 └── plan/                                       ← Specs for MINOR changes and decisions.
     │                                             Chronological log style, newest-first.
-    └── <TOPIC>.md
+    └── YYYYMMDD_<topic>.md
 ```
 
 - `spec/MANIFESTO_en.md` / `spec/MANIFESTO_kr.md` — product philosophy, canonical feature taxonomy
