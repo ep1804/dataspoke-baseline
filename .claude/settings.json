@@ -30,6 +30,7 @@
       "Bash(docker ps*)",
       "Bash(docker images*)",
       "Bash(docker inspect *)",
+      "Skill(datahub-api)",
       "Skill(kubectl)",
       "Skill(monitor-k8s)",
       "Skill(plan-doc)",
