@@ -123,6 +123,7 @@ Skills live in `.claude/skills/`. Claude loads them automatically when the conte
 | `kubectl` | `/kubectl <operation>` | Run kubectl/helm operations against the local cluster; reads `dev_env/.env` for context and namespaces. User-invoked only. |
 | `monitor-k8s` | `/monitor-k8s [focus]` | Full cluster health report (pods, events, Helm releases). Runs in a forked subagent. |
 | `plan-doc` | `/plan-doc <topic>` | Write spec documents routed to the correct tier: `spec/feature/` for major feature deep-dives (timeless reference format), `spec/plan/` for minor changes and decisions (chronological log style). |
+| `datahub-api` | `/datahub-api <task>` | Answer DataHub data model questions (Q&A mode) or write/test Python code against the local DataHub instance (Code Writer mode). Auto-triggered on DataHub API tasks. |
 
 ### Commands — user-invoked workflows
 

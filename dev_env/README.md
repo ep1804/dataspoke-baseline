@@ -49,18 +49,19 @@ chmod +x install.sh uninstall.sh datahub/install.sh datahub/uninstall.sh \
 
 This takes approximately 5-10 minutes on the first run while container images are pulled.
 
-### 3. Access the DataHub UI
+### 3. Access DataHub (UI + GMS API)
 
 ```bash
-source dev_env/.env
-kubectl port-forward \
-  --namespace $DATASPOKE_KUBE_DATAHUB_NAMESPACE \
-  $(kubectl get pods -n $DATASPOKE_KUBE_DATAHUB_NAMESPACE -l 'app.kubernetes.io/name=datahub-frontend' \
-    -o jsonpath='{.items[0].metadata.name}') \
-  9002:9002
+dev_env/datahub-port-forward.sh          # start both forwards in background
+dev_env/datahub-port-forward.sh --stop   # stop both and clean up PIDs
 ```
 
-Open http://localhost:9002 in your browser.
+This forwards two endpoints:
+
+| Endpoint | Local URL | Purpose |
+|----------|-----------|---------|
+| DataHub UI | http://localhost:9002 | Web UI, GraphiQL |
+| DataHub GMS | http://localhost:9004 | REST API, Swagger UI, SDK target |
 
 Credentials: `datahub` / `datahub`
 
