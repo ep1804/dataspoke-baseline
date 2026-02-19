@@ -1,0 +1,8 @@
+# Ignore all downloaded reference materials
+github/
+docs/
+
+# Keep only setup scripts and documentation
+!README.md
+!setup.sh
+!.gitignore

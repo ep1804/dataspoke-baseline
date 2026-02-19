@@ -641,6 +641,8 @@ dataspoke-baseline/
 ├── helm-charts/        # Kubernetes deployment manifests
 ├── spec/               # Architecture specs and planning documents
 ├── dev_env/            # Local Kubernetes dev environment scripts
+├── ref/                # External source code for AI reference (version-locked to dev_env; git-ignored)
+│   └── github/datahub/ # DataHub OSS source (v1.4.0) — entity models, GraphQL, SDK, ingestion
 ├── tests/              # Unit, integration, and e2e test suites
 ├── migrations/         # Alembic database migrations
 └── config/             # Environment-specific configuration files
@@ -901,6 +903,10 @@ Distributed tracing:
 ### Useful Commands
 
 ```bash
+# Reference materials (AI context)
+bash ref/setup.sh             # Download all reference materials (DataHub source)
+bash ref/setup.sh --clean     # Remove all downloaded reference materials
+
 # Local development (Kubernetes + Helm)
 cd dev_env && ./install.sh    # Start all services locally
 cd dev_env && ./uninstall.sh  # Stop all services

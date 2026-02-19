@@ -55,6 +55,7 @@ src/workflows/  — Temporal workflows
 src/shared/     — DataHub client wrappers, shared models
 api/            — Standalone OpenAPI 3.0 spec (API-first design)
 helm-charts/    — Kubernetes deployment
+ref/            — External source code for AI reference (version-locked to dev_env)
 ```
 
 **DataHub integration patterns** (read `spec/ARCHITECTURE.md` §Data Flow):
@@ -131,6 +132,7 @@ Commands live in `.claude/commands/`. Invoke them explicitly with `/command-name
 |---------|-----------|---------|
 | `dataspoke-dev-env-install` | `/dataspoke-dev-env-install` | End-to-end dev environment setup: configure `.env`, preflight checks, run `install.sh`, monitor progress, report access details. |
 | `dataspoke-dev-env-uninstall` | `/dataspoke-dev-env-uninstall` | Tear down the dev environment: show current state, confirm with user, run `uninstall.sh`, clean up orphaned PVs. |
+| `dataspoke-ref-setup-all` | `/dataspoke-ref-setup-all` | Download all AI reference materials: run `ref/setup.sh` in background and monitor until complete. |
 
 ### Subagents — Claude delegates automatically based on task context
 
