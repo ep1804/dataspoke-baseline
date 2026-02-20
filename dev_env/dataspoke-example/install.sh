@@ -61,15 +61,29 @@ kubectl rollout status deployment/example-postgres \
   --namespace "${NS}" \
   --timeout=3m
 
+info "Waiting for Kafka deployment to be ready (timeout: 3m)..."
+kubectl rollout status deployment/example-kafka \
+  --namespace "${NS}" \
+  --timeout=3m
+
+info "Waiting for Kafka topic-init job to complete (timeout: 2m)..."
+kubectl wait --for=condition=complete job/example-kafka-topic-init \
+  --namespace "${NS}" \
+  --timeout=2m
+
 # ---------------------------------------------------------------------------
 # Print connection info
 # ---------------------------------------------------------------------------
 echo ""
 info "dataspoke-example installation complete."
 echo ""
-echo "Port-forward command:"
+echo "Port-forward commands:"
 echo ""
 echo "  PostgreSQL:"
 echo "  kubectl port-forward --namespace ${NS} svc/example-postgres 5432:5432"
 echo "  Connection: ${PG_USER} / ${PG_PASS} — database: ${PG_DB}"
+echo ""
+echo "  Kafka:"
+echo "  kubectl port-forward --namespace ${NS} svc/example-kafka 9092:9092"
+echo "  Bootstrap server: localhost:9092 | Topic: example_topic"
 echo ""

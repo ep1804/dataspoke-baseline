@@ -1,6 +1,6 @@
 # DEV_ENV — Local Development Environment
 
-> **Version**: 0.3 | **Status**: Draft | **Date**: 2026-02-13
+> **Version**: 0.4 | **Status**: Draft | **Date**: 2026-02-21
 
 ## Table of Contents
 1. [Overview](#overview)
@@ -32,7 +32,7 @@ Local Kubernetes Cluster (minikube / docker-desktop)
 │  │  datahub-01         │   │  dummy-data1                 │  │
 │  │                     │   │                              │  │
 │  │  - GMS              │   │  - PostgreSQL (example src)  │  │
-│  │  - Frontend         │◄──┤                              │  │
+│  │  - Frontend         │◄──┤  - Kafka (example src)       │  │
 │  │  - MAE/MCE consumer │   │                              │  │
 │  │  - Kafka + ZK       │   └──────────────────────────────┘  │
 │  │  - Elasticsearch    │                                      │
@@ -53,7 +53,7 @@ Local Kubernetes Cluster (minikube / docker-desktop)
 - DataHub with **Elasticsearch graph backend** for lineage support (Neo4j is not required)
 - Example data source (PostgreSQL) in a dedicated namespace for testing DataHub ingestion workflows
 - Idempotent installs — re-running `install.sh` is always safe
-- Resource-constrained sizing that fits within ~57% of a typical local cluster (8 CPU / 14 GB RAM)
+- Resource-constrained sizing that fits within ~59% of a typical local cluster (8 CPU / 14 GB RAM)
 
 ### Non-Goals
 - Production deployment (use `helm-charts/dataspoke` for production)
@@ -69,7 +69,7 @@ Local Kubernetes Cluster (minikube / docker-desktop)
 |-----------|---------|------------|
 | `datahub-01` | DataHub platform + all backing services | `datahub/install.sh` via Helm |
 | `dataspoke-team1` | DataSpoke application (placeholder for now) | `dev_env/install.sh` (namespace only) |
-| `dummy-data1` | Example PostgreSQL for ingestion testing | `dataspoke-example/install.sh` via kubectl |
+| `dummy-data1` | Example PostgreSQL + Kafka for ingestion testing | `dataspoke-example/install.sh` via kubectl |
 
 > **Note**: The namespace names above are the **default values** shipped in `dev_env/.env`. All scripts read these names exclusively from environment variables — `$DATASPOKE_KUBE_DATAHUB_NAMESPACE`, `$DATASPOKE_KUBE_DATASPOKE_NAMESPACE`, and `$DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE` — and never hardcode them. You can rename the namespaces freely by editing `.env` before running `install.sh`. Namespace names used elsewhere in this document are the defaults and serve as illustrative examples only.
 >
@@ -97,6 +97,7 @@ dev_env/
     ├── install.sh                        # Applies manifests and waits for readiness
     ├── uninstall.sh                      # Deletes manifests
     └── manifests/
+        ├── kafka.yaml                    # Kafka (KRaft) Deployment + Service + PVC + topic-init Job
         └── postgres.yaml                 # PostgreSQL 15 Deployment + Service + Secret + PVC
 ```
 
@@ -128,6 +129,7 @@ DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE=dummy-data1
 DATASPOKE_DEV_KUBE_DATAHUB_PREREQUISITES_CHART_VERSION=0.2.1
 DATASPOKE_DEV_KUBE_DATAHUB_CHART_VERSION=0.8.3
 DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_UI_PORT=9002
+DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_GMS_PORT=9004
 DATASPOKE_DEV_KUBE_DATAHUB_MYSQL_ROOT_PASSWORD=<16+ char password>
 DATASPOKE_DEV_KUBE_DATAHUB_MYSQL_PASSWORD=<16+ char password>
 
@@ -135,7 +137,8 @@ DATASPOKE_DEV_KUBE_DATAHUB_MYSQL_PASSWORD=<16+ char password>
 DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_USER=postgres
 DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_PASSWORD=ExampleDev2024!
 DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_DB=example_db
-DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_PORT_FORWARD_PORT=5432
+DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_PORT_FORWARD_PORT=9102
+DATASPOKE_DEV_KUBE_DUMMY_DATA_KAFKA_PORT_FORWARD_PORT=9104
 ```
 
 Sub-scripts (`datahub/install.sh`, `dataspoke-example/install.sh`) source `../.env` relative to their own `SCRIPT_DIR`. The top-level scripts source `./.env`.
@@ -262,6 +265,19 @@ Plain Kubernetes manifests (no Helm). Applied with `kubectl apply -f manifests/`
 
 Credentials are sourced from `dev_env/.env` variables. The `install.sh` script creates the `example-postgres-secret` via `kubectl create secret --from-literal` before applying manifests. The manifest no longer contains hardcoded `stringData`.
 
+### Kafka (`manifests/kafka.yaml`)
+
+| Field | Value |
+|-------|-------|
+| Image | `apache/kafka:3.9.0` |
+| Mode | KRaft (no ZooKeeper) |
+| Memory limit | 512 Mi |
+| Storage | 1 Gi PVC at `/var/lib/kafka/data` |
+| Service | ClusterIP, port 9092, name `example-kafka` |
+| Topic init | Job `example-kafka-topic-init` creates `example_topic` (1 partition, RF 1) |
+
+This Kafka instance is **separate** from DataHub's prerequisites Kafka in `datahub-01`. It simulates an external Kafka data source that DataSpoke/DataHub would ingest from (e.g., streaming metadata change events, testing Kafka-based ingestion recipes).
+
 ### dataspoke-example/install.sh Steps
 
 1. Source `../.env`
@@ -269,14 +285,16 @@ Credentials are sourced from `dev_env/.env` variables. The `install.sh` script c
 3. Create `example-postgres-secret` from `$DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_*` variables (idempotent via `--dry-run=client -o yaml | kubectl apply -f -`)
 4. `kubectl apply -f ./manifests/`
 5. Wait for PostgreSQL: `kubectl rollout status deployment/example-postgres --timeout=3m`
-6. Print connection details for local use
+6. Wait for Kafka: `kubectl rollout status deployment/example-kafka --timeout=3m`
+7. Wait for topic-init job: `kubectl wait --for=condition=complete job/example-kafka-topic-init --timeout=2m`
+8. Print connection details for PostgreSQL and Kafka
 
 ---
 
 ## Resource Sizing
 
 Cluster capacity: **8 CPU / 14 GB RAM / 150 GB storage**.
-Target usage for `dev_env`: **~55%** -> ~7.8 GiB RAM, ~6.4 CPU limits.
+Target usage for `dev_env`: **~59%** -> ~8.3 GiB RAM, ~6.9 CPU limits.
 
 ### Memory Budget (limits)
 
@@ -294,21 +312,23 @@ Target usage for `dev_env`: **~55%** -> ~7.8 GiB RAM, ~6.4 CPU limits.
 | datahub-mce-consumer | datahub-01 | 512 Mi | 1536Mi (-67%) | Low event volume in dev |
 | datahub-actions | datahub-01 | 256 Mi | 512Mi (-50%) | Lightweight Python process |
 | example-postgres | dummy-data1 | 256 Mi | — | Minimal example source |
-| **Total** | | **~7.8 Gi** | | |
+| example-kafka | dummy-data1 | 512 Mi | — | KRaft mode, no ZooKeeper |
+| **Total** | | **~8.3 Gi** | | |
 
 ### Comparison with Previous Spec (v0.1)
 
-| Change | v0.1 | v0.2 | v0.3 (current) |
-|--------|------|------|----------------|
-| Neo4j | 2048 Mi | 0 | 0 |
-| Elasticsearch | 3072 Mi | 1536 Mi | 2560 Mi |
-| MySQL (prereqs) | 768 Mi | 512 Mi | 768 Mi |
-| Kafka | 768 Mi | 512 Mi | 512 Mi |
-| GMS | 2048 Mi | 1536 Mi | 1536 Mi |
-| example-mysql | — | 256 Mi | 0 (removed) |
-| **Total** | **~10.8 Gi** | **~6.4 Gi** | **~7.8 Gi** |
+| Change | v0.1 | v0.2 | v0.3 | v0.4 (current) |
+|--------|------|------|------|----------------|
+| Neo4j | 2048 Mi | 0 | 0 | 0 |
+| Elasticsearch | 3072 Mi | 1536 Mi | 2560 Mi | 2560 Mi |
+| MySQL (prereqs) | 768 Mi | 512 Mi | 768 Mi | 768 Mi |
+| Kafka (prereqs) | 768 Mi | 512 Mi | 512 Mi | 512 Mi |
+| GMS | 2048 Mi | 1536 Mi | 1536 Mi | 1536 Mi |
+| example-mysql | — | 256 Mi | 0 (removed) | 0 |
+| example-kafka | — | — | — | 512 Mi |
+| **Total** | **~10.8 Gi** | **~6.4 Gi** | **~7.8 Gi** | **~8.3 Gi** |
 
-The revised budget of **~7.8 Gi** targets ~55% of the 14 GB cluster, leaving ~4.7 GiB headroom for Kubernetes system components (kubelet, CoreDNS, kube-proxy), Helm setup/upgrade jobs (which can temporarily consume up to 2Gi for `datahubSystemUpdate`), and future DataSpoke sidecar services. The increase from v0.2 (~6.4 Gi) reflects field-tested limits: Elasticsearch and MySQL both OOM-killed at their previous limits during concurrent startup on a fresh cluster.
+The revised budget of **~8.3 Gi** targets ~59% of the 14 GB cluster, leaving ~4.2 GiB headroom for Kubernetes system components (kubelet, CoreDNS, kube-proxy), Helm setup/upgrade jobs (which can temporarily consume up to 2Gi for `datahubSystemUpdate`), and future DataSpoke sidecar services. The increase from v0.3 (~7.8 Gi) adds a KRaft-mode Kafka instance in `dummy-data1` for testing Kafka-based ingestion scenarios. The v0.3 increase from v0.2 (~6.4 Gi) reflected field-tested limits: Elasticsearch and MySQL both OOM-killed at their previous limits during concurrent startup on a fresh cluster.
 
 The DataHub documentation states a minimum of **2 CPU / 8 GB RAM** for running DataHub with all dependencies. Our budget fits within this envelope while adding explicit resource limits that the upstream chart often omits.
 
@@ -328,9 +348,10 @@ The DataHub documentation states a minimum of **2 CPU / 8 GB RAM** for running D
 | datahub-mce-consumer | datahub-01 | 500m |
 | datahub-actions | datahub-01 | 200m |
 | example-postgres | dummy-data1 | 500m |
-| **Sum of limits** | | **6400m** |
+| example-kafka | dummy-data1 | 500m |
+| **Sum of limits** | | **6900m** |
 
-CPU limits total 6.4 cores. Since pods rarely hit their limits simultaneously, actual CPU usage is well within the 8 CPU budget. The upstream DataHub chart does **not** set CPU limits for runtime components (only requests), but explicit limits are added here to prevent any single component from starving others on a constrained dev cluster.
+CPU limits total 6.9 cores. Since pods rarely hit their limits simultaneously, actual CPU usage is well within the 8 CPU budget. The upstream DataHub chart does **not** set CPU limits for runtime components (only requests), but explicit limits are added here to prevent any single component from starving others on a constrained dev cluster.
 
 ---
 
@@ -401,7 +422,7 @@ CPU limits total 6.4 cores. Since pods rarely hit their limits simultaneously, a
 **Fix**:
 1. Check node allocatable resources: `kubectl describe node`
 2. Stop other resource-heavy workloads or increase Docker Desktop memory allocation (Settings → Resources).
-3. The full dev environment requires ~7.8 GiB memory limits and ~6.4 CPU limits — a 14 GB / 8 CPU cluster is the minimum.
+3. The full dev environment requires ~8.3 GiB memory limits and ~6.9 CPU limits — a 14 GB / 8 CPU cluster is the minimum.
 
 ---
 
@@ -432,7 +453,7 @@ CPU limits total 6.4 cores. Since pods rarely hit their limits simultaneously, a
 
 - [ ] Should `dataspoke-example` sources pre-populate sample data (seed SQL scripts) for realistic ingestion testing?
 - [ ] As DataSpoke application code is written, what services (Qdrant, Temporal, Redis, PostgreSQL) should be added to the `dataspoke` namespace in `dev_env`? A `dataspoke/install.sh` sub-script will be needed.
-- [ ] Should `dataspoke-example` Kafka producers/consumers be added to simulate streaming data into DataHub via Kafka MCE topics?
+- [x] ~~Should `dataspoke-example` Kafka producers/consumers be added to simulate streaming data into DataHub via Kafka MCE topics?~~ **Resolved**: Added `example-kafka` (KRaft mode, `apache/kafka:3.9.0`) to `dummy-data1` with an `example_topic`. This provides a standalone Kafka instance for testing Kafka-based ingestion.
 - [ ] Should MAE/MCE consumer memory limits be further reduced (e.g., to 384Mi) to free more headroom? The upstream defaults of 1536Mi are sized for production throughput; monitoring actual dev usage would inform whether 512Mi is still too generous.
 
 ---

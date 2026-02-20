@@ -44,6 +44,11 @@ Read `spec/feature/DEV_ENV.md` for the full development environment specificatio
    - Show the utility script to port-forward: `./dev_env/datahub-port-forward.sh`
    - Show the URL: `http://localhost:9002`
    - Show the credentials: `datahub / datahub`
-2. Tell the user that **Example PostgreSQL is ready**:
-   - Show the port-forward command to access it on port 5432.
-   - Show the connection details: `postgres / ExampleDev2024!`, database `example_db`.
+2. Tell the user that **dummy-data sources are ready** (PostgreSQL + Kafka):
+   - Show the utility script to port-forward: `./dev_env/dummy-data-port-forward.sh`
+   - PostgreSQL: `localhost:9102` — credentials `postgres / ExampleDev2024!`, database `example_db`
+   - Kafka: `localhost:9104` — topic `example_topic`
+3. **Ask the user** if they want to start the port-forwarding processes now:
+   - If yes for DataHub: run `./dev_env/datahub-port-forward.sh`
+   - If yes for dummy-data: run `./dev_env/dummy-data-port-forward.sh`
+   - Both can be started independently.

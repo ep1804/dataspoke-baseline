@@ -1,0 +1,153 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: example-kafka-pvc
+  labels:
+    app: example-kafka
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example-kafka
+  labels:
+    app: example-kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: example-kafka
+  template:
+    metadata:
+      labels:
+        app: example-kafka
+    spec:
+      containers:
+        - name: kafka
+          image: apache/kafka:3.9.0
+          ports:
+            - containerPort: 9092
+              name: kafka
+            - containerPort: 9093
+              name: controller
+          env:
+            - name: KAFKA_NODE_ID
+              value: "1"
+            - name: KAFKA_PROCESS_ROLES
+              value: "broker,controller"
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: "1@localhost:9093"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://:9092,CONTROLLER://:9093"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://example-kafka:9092"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_LOG_DIRS
+              value: "/var/lib/kafka/data"
+            - name: CLUSTER_ID
+              value: "dataspoke-example-kafka-001"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: kafka-data
+              mountPath: /var/lib/kafka/data
+          readinessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+      volumes:
+        - name: kafka-data
+          persistentVolumeClaim:
+            claimName: example-kafka-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: example-kafka
+  labels:
+    app: example-kafka
+spec:
+  type: ClusterIP
+  selector:
+    app: example-kafka
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: 9092
+      protocol: TCP
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: example-kafka-topic-init
+  labels:
+    app: example-kafka
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: example-kafka-topic-init
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-kafka
+          image: apache/kafka:3.9.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Kafka to be ready..."
+              until /opt/kafka/bin/kafka-broker-api-versions.sh \
+                --bootstrap-server example-kafka:9092 >/dev/null 2>&1; do
+                echo "  Kafka not ready yet, retrying in 5s..."
+                sleep 5
+              done
+              echo "Kafka is ready."
+      containers:
+        - name: topic-init
+          image: apache/kafka:3.9.0
+          command:
+            - sh
+            - -c
+            - |
+              /opt/kafka/bin/kafka-topics.sh \
+                --bootstrap-server example-kafka:9092 \
+                --create \
+                --if-not-exists \
+                --topic example_topic \
+                --partitions 1 \
+                --replication-factor 1
+              echo "Topic 'example_topic' created (or already exists)."
+              /opt/kafka/bin/kafka-topics.sh \
+                --bootstrap-server example-kafka:9092 \
+                --list

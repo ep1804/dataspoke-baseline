@@ -1,2 +1,2 @@
 dev_env/.env
-dev_env/.datahub-port-forward.pid
+dev_env/.*.pid
