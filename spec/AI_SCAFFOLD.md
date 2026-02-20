@@ -1,6 +1,6 @@
 # DataSpoke Baseline: AI Coding Scaffold
 
-> **Document Status**: Specification v0.1
+> **Document Status**: Specification v0.2 (updated 2026-02-21)
 > This document covers Goal 2 of the DataSpoke Baseline project: providing a ready-to-use scaffold so that an organization-specific dedicated data catalog (a "Spoke") can be built with AI in a short time.
 
 ---
@@ -14,8 +14,9 @@
    - [Commands](#commands)
    - [Subagents](#subagents)
 4. [Permissions Model](#permissions-model)
-5. [Building a Custom Spoke](#building-a-custom-spoke)
-6. [Design Principles](#design-principles)
+5. [Current Status](#current-status)
+6. [Building a Custom Spoke](#building-a-custom-spoke)
+7. [Design Principles](#design-principles)
 
 ---
 
@@ -39,22 +40,26 @@ This document covers **Goal 2**. The scaffold is the set of Claude Code configur
 ├── skills/                     # Auto-loaded prompt extensions
 │   ├── kubectl/                # Kubernetes operations against local cluster
 │   ├── monitor-k8s/            # Cluster health reporting
-│   └── plan-doc/               # Spec document routing and authoring
+│   ├── plan-doc/               # Spec document routing and authoring
+│   └── datahub-api/            # DataHub data model Q&A and code writing
 ├── commands/                   # User-invoked multi-step workflows
 │   ├── dataspoke-dev-env-install.md
-│   └── dataspoke-dev-env-uninstall.md
+│   ├── dataspoke-dev-env-uninstall.md
+│   └── dataspoke-ref-setup-all.md
 ├── agents/                     # Subagent system prompts
 │   ├── api-spec.md             # OpenAPI spec author
 │   ├── backend.md              # FastAPI/Python implementer
 │   ├── frontend.md             # Next.js/TypeScript implementer
 │   └── k8s-helm.md             # Helm/Kubernetes/Docker author
-└── settings.json               # Tool permission rules
+├── settings.json               # Tool permission rules
+└── settings.local.json         # Local overrides (machine-specific approvals)
 ```
 
-The scaffold works alongside three other structural elements:
+The scaffold works alongside four other structural elements:
 - **`CLAUDE.md`** — root-level agent instructions: project context, architecture summary, design decisions, and the full Claude Code configuration reference
 - **`spec/`** — hierarchical specification documents (MANIFESTO → ARCHITECTURE → feature specs → plan logs)
 - **`dev_env/`** — local Kubernetes dev environment scripts
+- **`ref/`** — external source code for AI reference (version-locked DataHub v1.4.0 OSS source, downloaded via `ref/setup.sh`)
 
 ---
 
@@ -69,6 +74,7 @@ Skills are prompt extensions that give the agent specialized context or workflow
 | `kubectl` | `/kubectl <operation>` | User-invoked only | Run kubectl/helm operations against the local cluster; reads cluster name and namespaces from `dev_env/.env` |
 | `monitor-k8s` | `/monitor-k8s [focus]` | User-invoked; runs in forked subagent | Full cluster health report: pod status, recent events, Helm releases |
 | `plan-doc` | `/plan-doc <topic>` | User-invoked or auto-triggered when writing specs | Route spec authorship to the correct tier (`spec/feature/` vs `spec/plan/`) and enforce document format |
+| `datahub-api` | `/datahub-api <task>` | User-invoked or auto-triggered on DataHub API tasks | Dual-mode skill: Q&A mode for DataHub data model questions, Code Writer mode for writing/testing Python code against DataHub APIs. Uses `ref/github/datahub/` source and live cluster for validation |
 
 ### Commands
 
@@ -78,6 +84,7 @@ Commands are user-invoked multi-step workflows — scripted sequences of agent a
 |---------|-----------|---------|
 | `dataspoke-dev-env-install` | `/dataspoke-dev-env-install` | End-to-end dev environment setup: configure `dev_env/.env`, run preflight checks, execute `install.sh`, monitor pod readiness, report access URLs |
 | `dataspoke-dev-env-uninstall` | `/dataspoke-dev-env-uninstall` | Controlled teardown: show current cluster state, confirm with user, run `uninstall.sh`, clean up orphaned PVs |
+| `dataspoke-ref-setup-all` | `/dataspoke-ref-setup-all` | Download all AI reference materials: run `ref/setup.sh` in background and monitor until complete. Provides DataHub v1.4.0 source for the `datahub-api` skill |
 
 ### Subagents
 
@@ -105,6 +112,25 @@ Defined in `.claude/settings.json`. The guiding principle: **read freely, mutate
 | Destructive operations (`kubectl delete namespace`, `rm -rf`, `sudo`) | Always blocked |
 
 This allows the agent to freely inspect the local cluster state while requiring explicit user approval before changing it.
+
+---
+
+## Current Status
+
+The scaffold itself is **fully operational**. All skills, commands, subagents, and permission rules are in place and functional.
+
+| Component | Status |
+|-----------|--------|
+| `.claude/` scaffold (skills, commands, agents, settings) | Complete |
+| `spec/` hierarchy (MANIFESTO → ARCHITECTURE → feature → plan) | Complete |
+| `dev_env/` local Kubernetes environment (DataHub + example sources) | Complete |
+| `ref/` AI reference materials (DataHub v1.4.0 source) | Complete |
+| `api/` standalone OpenAPI specs | Not yet created |
+| `src/` application source code | Not yet created |
+| `helm-charts/` deployment packaging | Not yet created |
+| `.claude/agent-memory/` accumulated subagent knowledge | Not yet populated (no implementation sessions have run) |
+
+The project is in the **specification and dev-environment phase**. The scaffold is ready for an organization to fork and begin AI-assisted implementation of their custom Spoke.
 
 ---
 
