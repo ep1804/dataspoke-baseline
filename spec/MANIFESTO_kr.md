@@ -1,70 +1,119 @@
 # DataSpoke Baseline
 
-AI Data Catalog Starter: Productized Scaffold for Custom Solutions
+AI Data Catalog Starter: Productized Scaffold to Generate Custom Solutions
 
 ![DataSpoke MANIFESTO](../assets/MANIFESTO_image.jpg)
 
 ---
 
-## 1. 문제 정의
+## 1. 배경
 
-### AI 시대, 데이터 카탈로그의 새로운 요구 조건
+### 맞춤형 솔루션의 필요성
+
+데이터 카달로그 솔루션들(e.g. DataHub, Dataplex, OpenMetadata)은 방대한 기능을 제공하나, 실제 현장 활용도는 그 기능 수준에 비하면 낮은 경우가 많다. 이는 모두를 만족시키려다 그 누구에게도 최적화되지 못한 인터페이스가 되었기 때문이다. 
+
+데이터 사용자 그룹의 요구는 다양하다. 데이터 엔지니어는 파이프라인의 세부 기술 스펙과 비용을 보고 싶다. ML Engineer와 데이터 분석가는 text-to-SQL을 위해 충분한 도메인 정보를 데이터를 원한다. 데이터 스튜어드는 거버넌스를 위해 데이터 가용성 수치(다운타임 등)와 품질 검사 결과 이력을 모니터링하고 싶다. 보안팀은 PII(개인정보) 활용 현황을 한눈에 보고 싶다. 아무리 잘 설계된 UI라고 해도 이런 다양한 목적을 소화하려면 쉽고 편리한 사용성을 유지하기는 어렵다.
+
+UI 차원을 넘어서 각 사용자는 도메인에 특화된 추가 기능을 원하는 경우도 많다. ML 기반의 데이터 품질 점검 모듈을 맞춤형으로 작성하여 데이터 카달로그에서 구동하려고 하거나, 기존의 메타 수집(ingestion) 구조에 맞지 않는 특이한 데이터 소스를 등록해야 할 수 있다. 각 도메인의 맞춤형 기능을 구현하는 것은 어쩌면 해당 도메인이 담당하여 하는 것이 가장 좋을 방법일 수도 있다.
+
+### AI 시대 데이터 카탈로그의 새로운 요구 조건
 
 LLM과 AI Agent가 실무 환경에 깊숙이 침투함에 따라, 데이터 카탈로그는 단순한 메타데이터 저장소를 넘어 다음의 두 가지 핵심 기능을 수행해야 한다.
 
-* **Online Verifier (실시간 검증)**: AI 코딩 루프 내에서 파이프라인 개발 결과물을 실시간으로 검증하는 기능.
-* **Self-Purification (자기 정화)**: AI를 활용해 데이터 온톨로지를 설계하고, 데이터 정합성을 스스로 점검 및 교정하는 기능.
+* **Online Verifier (실시간 검증)**: AI 코딩 루프 내에서 파이프라인 개발 결과물을 실시간으로 검증하는 기능. 이것은 RAG, MCP/Skill 등을 통해 데이터 카달로그가 코딩 루프에 연결됨으로써 가능하며, TDD 컨셉과 유사하게 데이터에 대한 세부 검증 도구를 먼저 설정하고 파이프라인을 개발하는 방식도 현재보다 널리 쓰일 수 있다.
+* **Self-Organization and Self-Purification (자기 조직화 및 자기 정화)**: AI를 활용해 데이터 택소노미(Taxonomy) 및 온톨로지(Ontology)를 설계하고, 데이터 정합성을 스스로 점검 및 교정하는 기능. 비즈니스 데이터는 계속 늘어나고 복잡해진다. 이것들은 전사적인 택소노미 및 온톨로지에 반영이 되어 정리가 되어야하고, 이를 기반으로 데이터 정합성에 대한 점검 또한 지속적으로 이루어져야 한다. 데이터 문서도 주변 환경 변화에 맞춰 지속적으로 업데이트 되어야 한다. 예를 들어 테이블명, 컬럼명은 비슷한 다른 테이블이 생기면 구분이 되도록 업데이트 되어야 한다. 이 일을 담당하여 처리하기 가장 좋은 시스템 컴포넌트가 데이터 카달로그이다.
 
-### 단일 카탈로그(Monolithic Catalog)의 한계
+## 2. 프로젝트 정의
 
-DataHub, Dataplex, OpenMetadata 등의 플랫폼은 방대한 기능을 제공하나, 실제 현장 활용도는 낮다. 이는 '모두를 만족시키려다 그 누구에게도 최적화되지 못한' 인터페이스가 되었기 때문이다.
-
-* **사용자 그룹별 관심사의 괴리**: 데이터 엔지니어는 파이프라인의 이상 징후를, 분석가는 신뢰할 수 있는 테이블을, 보안팀은 PII(개인정보) 현황을 추적하고자 한다. 각자의 목적이 상이함에도 단일 뷰(View)를 강요받는다.
-* **기능적 공백**: 표준 커넥터가 지원하지 못하는 레거시·비정형 데이터 소스 관리나, 정적 검증에 머물러 있는 품질 점검 등 운영 현장의 구체적인 요구사항을 기존 플랫폼이 수용하기에는 한계가 명확하다.
-
-### 목표
-
-본 프로젝트는 다음 두 가지 목표를 지향한다.
-
-1. **Baseline Product**: AI 시대의 데이터 카탈로그가 갖춰야 할 필수 기본 기능을 정의하고 구현한다.
-2. **Scaffold for AI coding**: 충분한 컨벤션, 개발 스펙, Claude Code 유틸리티를 제공하여, 각 조직에 특화된 '전용 카탈로그'를 AI로 단시간에 구축할 수 있는 개발 스캐폴드를 제공한다.
-
+본 프로젝트에서는 코딩 에이전트를 활용하여 맞춤형 데이터 카달로그를 빠르게 제작할 수 있는 틀을 제공하는 방식으로 맞춤형 데이터 카달로그 문제를 해결하려 한다.
 프로젝트 명 **DataSpoke**는 기존 DataHub를 중심(Hub)으로 두고, 각 조직의 니즈에 맞춘 특화 확장판을 바퀴살(Spoke)로 정의하는 구조에서 비롯되었다.
 
-### 저장소 구성 요소
+이 저장소에 담기는 산출물은 다음 두 가지이다.
 
-* **Baseline Product**: Online Verifier, Self-Purification 등 공통 핵심 기능의 구현체.
-* **Claude Code 유틸리티**: Command, Skill, Subagent, Agent Team 설정 등 AI 코딩 루프를 즉시 구동할 수 있는 환경.
-* **Development Spec**: 개발 환경 셋업, Hub-Spoke 간 API 규격, 기능 상세 스펙 및 아키텍처 문서.
+- **Baseline Product**: 몇몇 사용자 집단을 가정하여, AI 시대의 데이터 카탈로그가 갖춰야 할 기능 일부를 미리 정의하고 구현한다. 
+  다음 세가지 사용자 집단을 우선 고려한다: DE(Data Engineers), DA(Data Analysts), DG(Data Governance/Stewards)
+- **AI Scaffold**: 충분한 컨벤션, 개발 스펙, 개발 환경, Claude Code 유틸리티 등을 제공하여, 맞춤형 카달로그를 단시간에 구축할 수 있도록 한다.
 
----
+사용자는 이 저장소를 기반으로 Baseline Product에 기능을 추가하고 AI Scaffold를 활용하여 Agentic Coding Loop를 구동할 수 있다.
 
-## 2. 주요 기능
+## 3. Baseline Product
 
-### Ingestion (메타 수집)
+### 기본 원칙
 
-* **Configuration and Orchestration of Ingestion**: 일부 메타에 대해서는 메타 수집 설정을 등록하여 관리할 수 있으며, 자체 Orchestration으로 업데이트 한다.
-* **Python-based Custom Ingestion**: 레거시 및 비정형 데이터 소스에 대한 유연한 접근을 지원한다.
+맞춤형 데이터 카달로그를 사용자 그룹마다 구현하는 방식은 다음 두가지 측면에서 위험할 수 있다.
 
-### Quality Control (품질 관리)
+- 이미 잘 구현되어 있는 오픈소스나 솔루션을 재활용하지 않고 신규 구축할 가능성
+- 여러 도메인을 위한 카달로그를 구축하는 과정에서 일관성을 해칠 가능성이다. 
 
-* **Python-based Quality Model**: 머신러닝 기반의 시계열 이상 탐지 등 고도화된 품질 모델을 지원한다.
+따라서, 다음과 같은 원칙으로 이런 위험성을 회피하며 통일성있는 API와 UI를 유지하려 한다.
 
-### Self-Purifier (자기 정화)
+- DataHub를 Backend 필수 구성요소로 활용한다. DataHub가 제공하는 기능을 최대한 활용하여 메타 데이터를 저장하고 그것을 단일 진실 공급원(Single Source of Truth)이 되도록 한다.
+- API 작성과 관련한 세부적인 콘벤션을 제정하여 도메인이 달라지더라도 API에 일관성을 부여한다. 
 
-* **Documentation Auditor**: 메타데이터의 오류를 자동 스캔하고 데이터 소유자(Owner)에게 알림을 발송한다.
-* **Health Score Dashboard**: 팀별 데이터 문서화 점수 및 품질 현황을 추적한다.
+### 기본 구조
 
-### Knowledge Base & Verifier (지식 베이스 및 검증)
+크게 4가지 컴포넌트로 구성된다.
 
-* **Semantic Search API**: RAG(Retrieval-Augmented Generation) 최적화를 고려한 자연어 기반 탐색 인터페이스를 제공한다.
-* **Context Verification API**: AI 에이전트가 코딩 루프 중에 생성한 데이터의 품질을 실시간으로 검증한다.
+[그림 삽입 1]
 
----
+- DataSpoke UI
+- DataSpoke API
+- DataSpoke Backend/Pipeline
+- DataHub
 
-## 3. Architecture
+UI의 첫 화면은 각 사용자 그룹에 대한 맞춤형 솔루션들을 나타내는 포털 형식으로 한다.
 
-DataSpoke는 DataHub와 연동되면서도 독립적으로 배포되는 **사이드카(Sidecar) 애플리케이션**이다.
+[그림 삽입 2]
 
-* **The Hub (DataHub GMS)**: 메타데이터의 '단일 진실 공급원(Single Source of Truth)'. 메타데이터 영속성 및 표준 스키마를 관리하며, GraphQL/REST API 및 Kafka를 통해 DataSpoke와 양방향으로 통신한다.
-* **The Spoke (DataSpoke)**: Hub가 제공하지 않는 비즈니스 로직과 전용 UX 레이어를 담당한다. FastAPI와 Next.js를 기반으로 하며, 모든 기능 그룹에 걸쳐 공유되는 **Management & Orchestration** 레이어(워크플로우 엔진, 스케줄링, 운영 API)를 운영하며, 필요에 따라 자체 VectorDB, 분석 인프라를 병행 운용한다.
+API의 URI Path 상부 구조는 다음과 같은 형태로 구성한다. 마찬가지로 사용자 그룹별 솔루션을 지향한다.
+
+/api/v1/hub/…
+/api/v1/spoke/de/…
+/api/v1/spoke/da/…
+/api/v1/spoke/dg/…
+
+### 사용자 그룹별 맞춤 기능
+
+Data Engineering 사용자 그룹
+
+- 세부 기술 스펙 수집(Ingestion): 몇몇 플랫폼(Storage, Database, SQL Engine, Queue 등)을 지정하여, 세부적인 기술 스펙을 메타로 수집한다. 이때 세부 기술 스펙은 스토리지 압축 포맷, 카프카 토픽 replication 수준 등 다양하게 정할 수 있다.
+- Online Data Validator: 데이터에 대한 시계열 모니터링을 설정하고 값에 대한 validation을 수행한다. 이때, 검증 과정은 신규값 입력 과정과 별개로 진행할 수 있다. 즉, 시계열 데이터 저장소에 값을 입력하지 않고 해당 값이 해당 시점 검증을 통과하는지 여부만 확인 하는 용도로 API를 활용할 수 있으며, 신규 값이 아닌 과거 시점의 값도 보낼 수 있다.
+- 데이터 문서화 자동 제안:
+  - 각 테이블에 대해서, 데이터 생성과정 레퍼런스(e.g. github 코드 링크)를 메타데이터로 등록하면 문서화를 제안해준다.
+  - 여러 테이블에 대해서, 비슷하지만 조금씩 다른 테이블이 있으면 특성을 명확히 구분할 수 있는 문서화를 제안해준다.
+  - 전사적으로 사용할 만한 데이터 문서화 Taxonomy 및 Ontology를 제안해준다. 이것을 승인하면 이에 기반한 데이터 문서화 수정 제안을 한다.
+  - 제안된 것들은 리스트로도 볼 수 있고, 각 데이터 화면에서도 볼 수 있다.
+
+Data Analysis 사용자 그룹
+
+- 자연어 기반의 데이터 테이블 검색
+- SQL이 가능한 플랫폼의 데이터에 대한, text-to-SQL에 활용할 수 있는 수준의 정제된 메타데이터 접근
+  - 플랫폼 기술 스펙보다는 데이터 내용에 충실한 정제된 메타데이터
+- Online Data Validator: DE 그룹 기능과 동일하게 활용
+
+Data Governance 사용자 그룹
+
+- 관리중인 데이터 전체에 대한 지표 몇가지를 시계열 대시보드로 모니터링 할 수 있다. 
+  - 예를 들어, 플랫폼 별 데이터 수, 데이터 총 량, 가용 데이터 비율(i.e. 다운타임)
+- 다양한 데이터 전체 조망 지원
+  - Taxonomy/Ontology Graph 기반 데이터셋 조망, 각종 통계량(규모, 품질 등)으로 coloring/sizing, 2D/3D
+  - Medalion Architecture 기반 데이터셋 조망, 각종 통계량(규모, 품질 등)으로 coloring/sizing, 2D/3D
+
+## 4. AI Scaffold
+
+단계별 작업을 위한 command/skill 들을 제공한다.
+
+1) 개발 환경 셋업
+  - github clone 등 활용, 레퍼런스 데이터를 셋업하는 도구
+  - local kubernetes cluster를 활용해 개발 환경을 셋업하는 도구
+
+2) 개발 계획 도구
+  - 각 사용자 그룹별 기능 스펙을 작성하는 도구
+    - spec/feature_spoke 디렉토리 이하에 작성
+    - 기존 사용자 그룹에 기능을 수정/추가 하거나, 신규 사용자 그룹 기능을 생성
+    - ingestion, quality, 등 분야별로 객관식/주관식 질의를 통해 스펙 초안을 작성해줌
+  - 개발 스펙에 대한 세부 구현 계획(plan)을 작성하는 
+    - spec/plan 디렉토리 이하에 작성
+    - spec과 현재 구현 내용, 개발 환경 등을 고려해 작업을 계획
+    - 해당 스펙 구현에 필요한 AI coding 방식도 셋팅하며, 이 과정에서 skill, subagent, agent team 구성 방식도 제안
+    - sub-task로 scaffold 보강 및 신규 구현도 가능
