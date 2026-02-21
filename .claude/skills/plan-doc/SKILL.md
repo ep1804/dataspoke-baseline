@@ -10,35 +10,46 @@ allowed-tools: Read, Write, Edit
 ```
 spec/
 ├── MANIFESTO_en.md     ← Highest authority. Canonical product identity,
-├── MANIFESTO_kr.md       feature taxonomy, and naming. Never modify.
+├── MANIFESTO_kr.md       user-group taxonomy (DE/DA/DG), naming. Never modify.
 ├── ARCHITECTURE.md     ← Top-level system architecture overview.
 ├── USE_CASE.md         ← Top-level conceptual scenarios.
 │
-├── feature/            ← Deep-dive specs for MAJOR features.
+├── feature/            ← Deep-dive specs for COMMON (cross-cutting) features.
 │   │                     Clean, timeless reference format.
 │   │                     No log-style content (no dates, authors, changelogs).
-│   └── <FEATURE>.md
+│   └── <FEATURE>.md      e.g. API.md, DEV_ENV.md
 │
-└── plan/               ← Specs for MINOR changes and decisions.
-    │                     Chronological log style. Each entry is dated.
+├── feature/spoke/      ← Deep-dive specs for USER-GROUP-SPECIFIC features.
+│   │                     Same timeless reference format as feature/.
+│   │                     One file per feature, tagged by user group (DE/DA/DG).
+│   └── <FEATURE>.md      e.g. INGESTION.md, NL_SEARCH.md, METRICS_DASHBOARD.md
+│
+└── plan/               ← Chronological decision plans/logs.
+    │                     Also used for minor changes. Each entry is dated.
     └── YYYYMMDD_<topic>.md
 ```
 
 **Routing rules:**
 - Top-level `spec/` — project-wide documents only. Do NOT create new top-level files unless the topic affects the whole system and warrants an architectural-level document.
-- `spec/feature/` — major feature deep-dives (e.g. `INGESTION.md`, `SEMANTIC_SEARCH.md`, `SELF_PURIFIER.md`). Topics map to the four manifesto feature groups or their sub-features.
-- `spec/plan/` — minor changes, incremental decisions, implementation notes, rollout plans. Written as a living log where new entries are prepended. **File names must be `YYYYMMDD_<topic_slug>.md` — date-prefixed and fully lowercase with underscores** (e.g., `20260216_rewrite_plan.md`).
+- `spec/feature/` — common/cross-cutting feature deep-dives that are not specific to a single user group (e.g. `API.md`, `DEV_ENV.md`, shared infrastructure).
+- `spec/feature/spoke/` — user-group-specific feature deep-dives. These map to features defined in the MANIFESTO under DE, DA, or DG groups. Examples: `INGESTION.md` (DE), `ONLINE_VALIDATOR.md` (DE/DA), `NL_SEARCH.md` (DA), `METRICS_DASHBOARD.md` (DG).
+- `spec/plan/` — chronological decision plans/logs. Also used for minor changes, implementation notes, and rollout plans. Written as a living log where new entries are prepended. **File names must be `YYYYMMDD_<topic_slug>.md` — date-prefixed and fully lowercase with underscores** (e.g., `20260216_rewrite_plan.md`).
+
+**How to decide between `feature/` and `feature/spoke/`:**
+- If the feature belongs to a specific user group in the MANIFESTO (DE/DA/DG) → `feature/spoke/`
+- If the feature is cross-cutting infrastructure, shared across groups, or not user-group-specific → `feature/`
+- When in doubt, check the MANIFESTO's "Features by User Group" section
 
 ---
 
 ## Step 1 — Read context
 
 Always read these before writing:
-- `spec/MANIFESTO_en.md` — canonical feature taxonomy and naming (highest authority)
-- `spec/ARCHITECTURE.md` — component layout, tech stack, service tree
-- `spec/USE_CASE.md` — reference scenarios
+- `spec/MANIFESTO_en.md` — canonical user-group taxonomy and naming (highest authority)
+- `spec/ARCHITECTURE.md` — component layout (UI, API, Backend/Pipeline, DataHub), tech stack
+- `spec/USE_CASE.md` — reference scenarios by user group
 
-If writing about a specific feature, also check for an existing `spec/feature/<FEATURE>.md` to extend rather than create a duplicate.
+If writing about a specific feature, also check for an existing `spec/feature/<FEATURE>.md` or `spec/feature/spoke/<FEATURE>.md` to extend rather than create a duplicate.
 
 ---
 
@@ -46,9 +57,10 @@ If writing about a specific feature, also check for an existing `spec/feature/<F
 
 | Destination | When to use | Document type |
 |-------------|-------------|---------------|
-| `spec/feature/<FEATURE>.md` | Major feature: Ingestion, Quality Control, Self-Purifier, Knowledge Base & Verifier, or a named sub-feature | Feature Spec (see template A) |
-| `spec/plan/YYYYMMDD_<topic>.md` | Minor change, ADR, implementation note, rollout plan, or anything with a specific date/milestone | Plan Log (see template B) |
-| `spec/<DOC>.md` (top-level) | Only for project-wide topics that belong alongside MANIFESTO and ARCHITECTURE | Top-level spec (use template A without feature-group context) |
+| `spec/feature/spoke/<FEATURE>.md` | User-group-specific feature from the MANIFESTO: DE (Ingestion, Online Validator, Doc Suggestions), DA (NL Search, Text-to-SQL Metadata, Validator), DG (Metrics Dashboard, Multi-Perspective Overview) | Spoke Feature Spec (see template A) |
+| `spec/feature/<FEATURE>.md` | Common/cross-cutting feature not specific to one user group (API design, dev environment, shared services) | Common Feature Spec (see template A, without user-group context) |
+| `spec/plan/YYYYMMDD_<topic>.md` | Decision plan, ADR, implementation note, rollout plan, minor change, or anything with a specific date/milestone | Plan Log (see template B) |
+| `spec/<DOC>.md` (top-level) | Only for project-wide topics that belong alongside MANIFESTO and ARCHITECTURE | Top-level spec (use template A without feature context) |
 
 ---
 
@@ -60,19 +72,24 @@ Use the template for the chosen destination. Follow these style rules for both:
 - ASCII diagrams for component/flow illustrations
 - Tables for comparisons and field definitions
 - Code blocks for schemas, interfaces, API examples
-- Feature group names must match the manifesto exactly: **Ingestion**, **Quality Control**, **Self-Purifier**, **Knowledge Base & Verifier**
+- User group names must match the MANIFESTO exactly: **DE** (Data Engineering), **DA** (Data Analysis), **DG** (Data Governance)
+- Feature names must match the MANIFESTO: **Deep Technical Spec Ingestion**, **Online Data Validator**, **Automated Documentation Suggestions**, **Natural Language Search**, **Text-to-SQL Optimized Metadata**, **Enterprise Metrics Time-Series Monitoring**, **Multi-Perspective Data Overview**
 - Product name is always `DataSpoke` (no space)
+- API URIs follow the pattern: `/api/v1/spoke/[de|da|dg]/...`
 
 ---
 
-## Template A — Feature Spec (`spec/feature/<FEATURE>.md`)
+## Template A — Feature Spec (`spec/feature/spoke/<FEATURE>.md` or `spec/feature/<FEATURE>.md`)
 
 No version/date/author metadata block. This is a timeless reference document.
+
+For spoke features, include the user group tag. For common features, omit it.
 
 ```markdown
 # <Feature Name>
 
-> Part of the **<Manifesto Feature Group>** feature group.
+> **User Group**: <DE | DA | DG | DE/DA (shared)>
+> (omit this line for common features in spec/feature/)
 
 ## Table of Contents
 1. [Overview](#overview)
@@ -134,6 +151,6 @@ Each entry has a date header and structured content.
 
 ## Step 4 — Update cross-references if needed
 
-- If a new `spec/feature/` document introduces components or data models that belong in the architecture overview, update `spec/ARCHITECTURE.md`.
+- If a new `spec/feature/` or `spec/feature/spoke/` document introduces components or data models that belong in the architecture overview, update `spec/ARCHITECTURE.md`.
 - If the document changes how a use case is realized, note it in `spec/USE_CASE.md` as a cross-reference.
 - Never modify `spec/MANIFESTO_en.md` or `spec/MANIFESTO_kr.md`.

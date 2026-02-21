@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Purpose
 
-This is a **specification repository** for DataSpoke — a sidecar extension to DataHub that adds semantic search, data quality monitoring, custom ingestion, and metadata health features. The repo contains architecture specs, manifestos, use cases, and local dev environment setup. No application source code exists yet.
+This is a **specification repository** for DataSpoke — a sidecar extension to DataHub that provides user-group-specific features for Data Engineers (DE), Data Analysts (DA), and Data Governance personnel (DG). The repo contains architecture specs, manifestos, use cases, and local dev environment setup. No application source code exists yet.
 
 ## Local Dev Environment (DataHub on Kubernetes)
 
@@ -46,11 +46,15 @@ DataSpoke is a **loosely coupled sidecar** to DataHub. DataHub is deployed separ
 | Cache | Redis |
 | DataHub integration | `acryl-datahub` Python SDK |
 
+**System components** (from MANIFESTO): UI → API → Backend/Pipeline + DataHub
+
+**API URI pattern**: `/api/v1/spoke/[de|da|dg]/...` (user-group-based routing)
+
 **Planned source layout** (from spec, not yet created):
 ```
-src/frontend/   — Next.js app
-src/api/        — FastAPI routers, schemas, middleware
-src/backend/    — Services: ingestion, quality, self_purifier, knowledge_base, context_verifier
+src/frontend/   — Next.js app (portal-style UI with DE/DA/DG entry points)
+src/api/        — FastAPI routers (per user group), schemas, middleware
+src/backend/    — Feature service implementations (detail in spec/feature/ specs)
 src/workflows/  — Temporal workflows
 src/shared/     — DataHub client wrappers, shared models
 api/            — Standalone OpenAPI 3.0 spec (API-first design)
@@ -74,15 +78,17 @@ alembic upgrade head  # Apply DB migrations
 
 ## Key Design Decisions
 
+- **DataHub-backed SSOT**: DataHub stores metadata; DataSpoke extends without modifying core
+- **API Convention Compliance**: All REST APIs must follow `spec/API_DESIGN_PRINCIPLE_en.md` — covers URI structure, request/response format, content/metadata separation, meta-classifiers (`attrs`, `methods`, `events`), and query parameter conventions
 - **API-first**: OpenAPI specs live in `api/` as standalone artifacts so AI agents and frontend can iterate without a running backend
-- **API Design Principle**: All REST APIs must follow `spec/API_DESIGN_PRINCIPLE_en.md` — covers URI structure, request/response format, content/metadata separation, meta-classifiers (`attrs`, `methods`, `events`), and query parameter conventions
+- **User-group routing**: API endpoints segmented by DE/DA/DG for clear ownership
 - **Temporal over Airflow**: better for long-running workflows, easier testing; use Airflow only if existing infrastructure demands it
 - **Qdrant over Pinecone**: self-hostable, Rust-based performance; consider Weaviate only for multi-tenancy requirements
 - **PostgreSQL over MongoDB**: ACID guarantees for ingestion configs, quality results, health scores
 
 ## Spec Documents
 
-The `spec/` directory is hierarchical. **`MANIFESTO_en.md` / `MANIFESTO_kr.md` are the highest authority** — all naming, feature taxonomy, and product identity derive from them.
+The `spec/` directory is hierarchical. **`MANIFESTO_en.md` / `MANIFESTO_kr.md` are the highest authority** — all naming, user-group taxonomy (DE/DA/DG), and product identity derive from them.
 
 ```
 spec/
@@ -91,19 +97,23 @@ spec/
 ├── AI_SCAFFOLD.md                              ← Claude Code scaffold: Goal 2 of the project.
 ├── USE_CASE.md                                 ← Conceptual scenarios (vision/ideation).
 ├── API_DESIGN_PRINCIPLE_en.md / _kr.md         ← REST API conventions. Apply to all APIs.
-├── feature/                                    ← Deep-dive specs for MAJOR features.
+├── feature/                                    ← Deep-dive specs for COMMON (cross-cutting) features.
 │   │                                             Timeless reference format. No dates/logs.
 │   └── <FEATURE>.md
-└── plan/                                       ← Specs for MINOR changes and decisions.
-    │                                             Chronological log style, newest-first.
+├── feature/spoke/                              ← Deep-dive specs for USER-GROUP-SPECIFIC features.
+│   │                                             One file per feature, grouped by user group (DE/DA/DG).
+│   └── <FEATURE>.md
+└── plan/                                       ← Chronological decision plans/logs.
+    │                                             Newest-first. Also used for minor changes.
     └── YYYYMMDD_<topic>.md
 ```
 
-- `spec/MANIFESTO_en.md` / `spec/MANIFESTO_kr.md` — product philosophy, canonical feature taxonomy
-- `spec/ARCHITECTURE.md` — full system architecture, component designs, data flows, deployment
-- `spec/USE_CASE.md` — conceptual scenarios (vision/ideation, not implementation specs)
-- `spec/feature/` — detailed specs per major feature (Ingestion, Quality Control, Self-Purifier, Knowledge Base & Verifier)
-- `spec/plan/` — chronological implementation plans and minor decision logs
+- `spec/MANIFESTO_en.md` / `spec/MANIFESTO_kr.md` — product philosophy, user-group taxonomy (DE/DA/DG)
+- `spec/ARCHITECTURE.md` — system architecture, 4 components (UI, API, Backend/Pipeline, DataHub), deployment
+- `spec/USE_CASE.md` — conceptual scenarios organized by user group (vision/ideation)
+- `spec/feature/` — specs for common/cross-cutting features (e.g. API design, dev env, shared infrastructure)
+- `spec/feature/spoke/` — specs for user-group-specific features (DE: Ingestion, Validator, Doc Suggestions; DA: NL Search, Text-to-SQL Metadata; DG: Metrics Dashboard, Multi-Perspective Overview)
+- `spec/plan/` — chronological decision plans/logs (also used for minor changes)
 - `dev_env/README.md` — local Kubernetes setup details
 
 ## Git Commit Convention
@@ -122,7 +132,7 @@ Skills live in `.claude/skills/`. Claude loads them automatically when the conte
 |-------|-----------|---------|
 | `kubectl` | `/kubectl <operation>` | Run kubectl/helm operations against the local cluster; reads `dev_env/.env` for context and namespaces. User-invoked only. |
 | `monitor-k8s` | `/monitor-k8s [focus]` | Full cluster health report (pods, events, Helm releases). Runs in a forked subagent. |
-| `plan-doc` | `/plan-doc <topic>` | Write spec documents routed to the correct tier: `spec/feature/` for major feature deep-dives (timeless reference format), `spec/plan/` for minor changes and decisions (chronological log style). |
+| `plan-doc` | `/plan-doc <topic>` | Write spec documents routed to the correct tier: `spec/feature/` for common features, `spec/feature/spoke/` for user-group-specific features (DE/DA/DG), `spec/plan/` for chronological decision plans/logs. |
 | `datahub-api` | `/datahub-api <task>` | Answer DataHub data model questions (Q&A mode) or write/test Python code against the local DataHub instance (Code Writer mode). Auto-triggered on DataHub API tasks. |
 
 ### Commands — user-invoked workflows

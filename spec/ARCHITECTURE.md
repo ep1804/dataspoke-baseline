@@ -1,22 +1,22 @@
 # DataSpoke: System Architecture
 
-> **Document Status**: Architecture Specification v0.2
+> **Document Status**: Architecture Specification v0.3
 > This document defines the high-level architecture, technology choices, and design decisions for the DataSpoke system.
+> Aligned with MANIFESTO v2 (user-group-based feature taxonomy).
 
 ---
 
 ## Table of Contents
 
 1. [Architecture Overview](#architecture-overview)
-   - [Hub-and-Spoke Model](#hub-and-spoke-model)
-   - [DataHub Deployment Model](#datahub-deployment-model)
 2. [Core Principles](#core-principles)
 3. [System Components](#system-components)
-4. [Technology Stack](#technology-stack)
-5. [Data Flow & Integration](#data-flow--integration)
-6. [Deployment Architecture](#deployment-architecture)
-7. [Repository Structure](#repository-structure)
-8. [Design Decisions & Rationale](#design-decisions--rationale)
+4. [Feature Architecture by User Group](#feature-architecture-by-user-group)
+5. [Technology Stack](#technology-stack)
+6. [Data Flow & Integration](#data-flow--integration)
+7. [Deployment Architecture](#deployment-architecture)
+8. [Repository Structure](#repository-structure)
+9. [Design Decisions & Rationale](#design-decisions--rationale)
 
 ---
 
@@ -24,55 +24,37 @@
 
 ### Hub-and-Spoke Model
 
-DataSpoke implements a **loosely coupled architecture** with DataHub, maintaining separation of concerns while enabling seamless integration.
+DataSpoke implements a **loosely coupled architecture** with DataHub, maintaining separation of concerns while enabling seamless integration. DataHub is the Hub (metadata SSOT); each user-group-specific extension is a Spoke.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        DataSpoke System                          │
-│                                                                   │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
-│  │   Frontend   │◄───┤   API Layer  │◄───┤   Backend    │      │
-│  │   (Next.js)  │    │  (FastAPI)   │    │  (Python)    │      │
-│  └──────────────┘    └──────────────┘    └──────┬───────┘      │
-│                                                    │               │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────▼───────┐      │
-│  │  Vector DB   │    │ Message Queue│    │ Orchestrator │      │
-│  │   (Qdrant)   │    │   (Kafka)    │    │  (Temporal)  │      │
-│  └──────────────┘    └──────┬───────┘    └──────────────┘      │
-│                              │                                    │
-└──────────────────────────────┼────────────────────────────────┘
-                               │
-                     ┌─────────▼──────────┐
-                     │                     │
-                     │   DataHub (Hub)     │
-                     │                     │
-                     │  ┌──────────────┐  │
-                     │  │     GMS      │  │
-                     │  │  (GraphQL)   │  │
-                     │  └──────────────┘  │
-                     │  ┌──────────────┐  │
-                     │  │  MCE/MAE     │  │
-                     │  │  (Kafka)     │  │
-                     │  └──────────────┘  │
-                     │  ┌──────────────┐  │
-                     │  │   Metadata   │  │
-                     │  │   Storage    │  │
-                     │  └──────────────┘  │
-                     └─────────────────────┘
+┌───────────────────────────────────────────────┐
+│                 DataSpoke UI                  │
+└───────────────────────┬───────────────────────┘
+                        │
+┌───────────────────────▼───────────────────────┐
+│                DataSpoke API                  │
+│         /api/v1/spoke/[de|da|dg]/...          │
+└───────────┬───────────────────────┬───────────┘
+            │                       │
+┌───────────▼───────────┐ ┌────────▼────────────┐
+│                       │ │      DataSpoke      │
+│       DataHub         │ │  Backend / Pipeline │
+│    (metadata SSOT)    │ │                     │
+└───────────────────────┘ └─────────────────────┘
 ```
 
 ### DataHub Deployment Model
 
-**Assumption**: DataHub is deployed and managed **separately** from DataSpoke
+**Assumption**: DataHub is deployed and managed **separately** from DataSpoke.
 
 ```
 ┌─────────────────────────┐         ┌─────────────────────────┐
 │   DataSpoke Stack       │         │   DataHub Instance      │
 │   (This Project)        │◄────────┤   (External)            │
 │                         │  API    │                         │
-│   - Frontend            │  Events │   - GMS                 │
+│   - UI                  │  Events │   - GMS                 │
 │   - API                 │  SDK    │   - Frontend (optional) │
-│   - Backend             │         │   - Kafka               │
+│   - Backend / Pipeline  │         │   - Kafka               │
 │   - Qdrant              │         │   - MySQL/Postgres      │
 │   - Temporal            │         │   - Elasticsearch       │
 └─────────────────────────┘         └─────────────────────────┘
@@ -105,221 +87,201 @@ cd dev_env && ./install.sh
 
 ### Key Architectural Tenets
 
-1. **Separation of Concerns**: Frontend, API, and Backend are strictly separated
-2. **Loose Coupling**: DataHub acts as SSOT; DataSpoke extends without modifying core
-3. **Event-Driven**: Real-time synchronization via Kafka message streams
-4. **API-First**: Standalone API documentation facilitates AI agent integration
+1. **DataHub-backed SSOT**: DataHub stores metadata; DataSpoke extends without modifying core
+2. **API Convention Compliance**: Unified API spec across all user groups (`spec/API_DESIGN_PRINCIPLE_en.md`)
+3. **User-Group Routing**: API endpoints segmented by DE/DA/DG for clear ownership
+4. **API-First**: Standalone OpenAPI specs in `api/` enable parallel frontend/backend development
 5. **Cloud-Native**: Kubernetes-ready with containerized deployments
 
 ---
 
 ## Core Principles
 
-### 1. Strict Layer Separation
+### 1. DataHub-backed Backend (SSOT)
 
-```
-┌─────────────────────────────────────────────┐
-│ Presentation Layer (Frontend)                │
-│ - Next.js + TypeScript                       │
-│ - React Components                           │
-│ - Client-side state management               │
-└─────────────────┬───────────────────────────┘
-                  │ HTTP/WebSocket
-┌─────────────────▼───────────────────────────┐
-│ API Gateway Layer                            │
-│ - RESTful API + GraphQL                      │
-│ - Authentication & Authorization             │
-│ - Request validation & rate limiting         │
-└─────────────────┬───────────────────────────┘
-                  │ Internal RPC
-┌─────────────────▼───────────────────────────┐
-│ Business Logic Layer (Backend)               │
-│ - FastAPI application                        │
-│ - Feature services: Ingestion, Quality       │
-│   Control, Self-Purifier, Knowledge Base     │
-│   & Verifier                                 │
-│ - ML models (Prophet, Isolation Forest)      │
-└─────────────────┬───────────────────────────┘
-                  │
-┌─────────────────▼───────────────────────────┐
-│ Data & Integration Layer                     │
-│ - Vector DB, Message Queue, Orchestrator     │
-│ - DataHub SDK integration                    │
-│ - External system connectors                 │
-└─────────────────────────────────────────────┘
-```
-
-### 2. API-First Design
-
-API documentation exists as **standalone artifacts** in a separate directory:
-- **Purpose 1**: Enable AI agents to iterate on API specifications independently
-- **Purpose 2**: Allow API documentation and testing without running backend
-- **Format**: OpenAPI 3.0 specification + human-readable markdown
-
-**API Design Principle**: All REST APIs developed in this project must conform to the conventions defined in `spec/API_DESIGN_PRINCIPLE_en.md`. This covers URI structure, request/response format, content/metadata separation, meta-classifiers (`attrs`, `methods`, `events`), and query parameter usage.
-
-### 3. DataHub Integration Strategy
+DataHub is the **mandatory backend** for metadata persistence. DataSpoke never duplicates metadata storage — it reads from and writes to DataHub, adding a computational/analysis layer on top.
 
 **Read Operations**:
 - DataHub GraphQL API for metadata queries
 - Kafka consumer for real-time change events (MCE/MAE)
 
 **Write Operations**:
-- DataHub Python SDK (`acryl-datahub`) for metadata ingestion
+- DataHub Python SDK (`acryl-datahub`) via `DatahubRestEmitter`
 - Custom aspects for DataSpoke-specific metadata
 
 **Boundary**:
 - DataHub = Source of truth for metadata persistence
 - DataSpoke = Computational layer for analysis, validation, and enrichment
 
+### 2. API Convention Compliance
+
+A unified API specification is applied across all user groups to maintain cross-system consistency. All REST APIs conform to `spec/API_DESIGN_PRINCIPLE_en.md`, covering:
+
+- URI structure and naming conventions
+- Request/response format standardization
+- Content/metadata separation in responses
+- Meta-classifiers (`attrs`, `methods`, `events`)
+- Query parameter conventions
+
+### 3. API-First Design
+
+API documentation exists as **standalone artifacts** in `api/`:
+- Enable AI agents to iterate on API specs independently of backend
+- Allow frontend development to start before backend is implemented
+- Support API mocking and contract testing without running services
+- Format: OpenAPI 3.0 specification + human-readable markdown
+
+### 4. Layer Separation
+
+The four system components (UI, API, Backend/Pipeline, DataHub) are strictly separated:
+- Independent scaling (UI ≠ Backend resources)
+- Technology flexibility (swap Next.js for Vue later)
+- Security boundaries (UI never accesses DB directly)
+- Team autonomy (frontend/backend teams work independently)
+
 ---
 
 ## System Components
 
-### Frontend Layer
+DataSpoke consists of **four major components**, as defined in the MANIFESTO.
+
+### 1. DataSpoke UI
 
 **Technology**: Next.js (TypeScript)
 
-**Components**:
+Provides a portal-style interface with user-group-specific entry points (DE, DA, DG).
+
+```
+┌─────────────────────────────────────────────┐
+│  Data Hub & Spokes                          │
+│                                             │
+│        (DE)                                 │
+│           \                                 │
+│            \         (DA)                   │
+│             \       /                       │
+│            [Hub]---/                        │
+│              |                              │
+│              |                              │
+│             (DG)                            │
+│                                             │
+└─────────────────────────────────────────────┘
+                 UI Main Page
+```
+
+**Key Characteristics**:
+- Server-side rendering (SSR) for initial load performance
+- Chart visualizations (Highcharts or Recharts)
+- Real-time updates via WebSocket connections
+- Responsive design for mobile/tablet access
+
+**Source Layout**:
 ```
 src/frontend/
-├── app/            # Next.js pages per feature group (dashboard, quality, self-purifier, search)
+├── app/            # Next.js pages per user group (de, da, dg)
 ├── components/     # Reusable UI components (charts, tables, common)
 ├── lib/            # API client, state management, custom hooks
 └── styles/         # Global styles and themes
 ```
 
-**Key Features**:
-- Server-side rendering (SSR) for initial load performance
-- Chart visualizations using Highcharts or Recharts
-- Real-time updates via WebSocket connections
-- Responsive design for mobile/tablet access
-
-### API Layer
+### 2. DataSpoke API
 
 **Technology**: FastAPI (Python 3.11+)
 
-**Structure**:
+Features a hierarchical URI structure separated by user group:
+
 ```
-src/api/
-├── routers/        # One router per feature group + system health
-├── schemas/        # Pydantic request/response models
-├── middleware/     # Auth, logging, rate limiting
-└── main.py         # FastAPI application entry
+/api/v1/spoke/de/...   → Data Engineering endpoints
+/api/v1/spoke/da/...   → Data Analysis endpoints
+/api/v1/spoke/dg/...   → Data Governance endpoints
 ```
 
 **API Types**:
 - **RESTful API**: CRUD operations, synchronous queries
-- **GraphQL** (optional): Complex nested queries for frontend flexibility
 - **WebSocket**: Real-time notifications and streaming data
 
-### Backend Layer
-
-**Technology**: Python 3.11+ (FastAPI framework)
-
-**Feature services mirror the four manifesto feature groups.**
-**Note**: `knowledge_base/` and `context_verifier/` are implemented as sibling services even though the manifesto groups them under "Knowledge Base & Verifier". The Verifier is a runtime consumer of the Knowledge Base, not a sub-module of it.
-
+**Source Layout**:
 ```
-src/backend/
-├── ingestion/          # Custom connector execution and scheduling
-├── quality/            # ML-based anomaly detection and rule validation
-├── self_purifier/      # Metadata health scoring and documentation auditing
-├── knowledge_base/     # Embedding generation, vector indexing, semantic search
-├── context_verifier/   # Online Verifier; queries knowledge_base for context
-├── models/             # Domain models
-├── repositories/       # Data access layer
-└── config.py           # Configuration management
+src/api/
+├── routers/        # One router per user group + system health
+├── schemas/        # Pydantic request/response models
+├── middleware/      # Auth, logging, rate limiting
+└── main.py         # FastAPI application entry
 ```
+
+### 3. DataSpoke Backend / Pipeline
+
+**Technology**: Python 3.11+ (FastAPI framework), Temporal for orchestration
+
+Handles core logic including ingestion, quality validation, documentation generation, semantic search, and metrics computation. Internal service decomposition is defined in `spec/feature/` specs per user group.
 
 **Key Capabilities**:
-- **Python-based Custom Ingestion**: REST API-based sync for legacy and non-standard sources
-- **Python-based Quality Model**: ML-based time series anomaly detection (Prophet, Isolation Forest)
-- **LLM Integration**: Metadata extraction from unstructured sources (Slack, docs)
-- **DataHub SDK**: Bidirectional communication with DataHub GMS
+- Custom ingestion from legacy and non-standard sources
+- ML-based time series anomaly detection (Prophet, Isolation Forest)
+- LLM integration for metadata extraction and documentation suggestions
+- Embedding generation and vector search (Qdrant)
+- Bidirectional communication with DataHub via `acryl-datahub` SDK
 
-### Data & Storage Layer
-
-#### 1. Vector Database (Qdrant)
-
-**Purpose**: Semantic search over metadata (Knowledge Base & Verifier feature group)
-
-**Schema**:
-```python
-{
-  "collection": "metadata_embeddings",
-  "vector_size": 1536,  # OpenAI ada-002 or similar
-  "distance": "Cosine",
-  "payload": {
-    "entity_urn": "urn:li:dataset:...",
-    "entity_type": "dataset",
-    "name": "...",
-    "description": "...",
-    "tags": [...],
-    "owners": [...],
-    "quality_score": 0.95,
-    "last_updated": "2024-02-09T..."
-  }
-}
+**Source Layout**:
+```
+src/backend/        # Feature service implementations
+src/workflows/      # Temporal workflow definitions
+src/shared/         # DataHub client wrappers, shared models
 ```
 
-**Alternative**: Weaviate (if schema flexibility and multi-tenant support needed)
+### 4. DataHub (External)
 
-#### 2. Message Broker (Kafka)
+DataHub is deployed and managed separately. DataSpoke communicates with it through:
 
-**Topics**:
-- `datahub.MetadataChangeEvent_v1`: DataHub metadata changes
-- `datahub.MetadataAuditEvent_v1`: DataHub audit events
-- `dataspoke.quality.alerts`: Quality Control issue notifications
-- `dataspoke.ingestion.status`: Ingestion job status updates
+- **GraphQL API** (`datahub-gms`): Metadata queries
+- **Kafka** (`MCE/MAE`): Real-time change event streams
+- **Python SDK** (`acryl-datahub`): Metadata writes via `DatahubRestEmitter`
 
-**Consumer Groups**:
-- `dataspoke-vector-sync`: Updates vector DB on metadata changes (Knowledge Base)
-- `dataspoke-quality-monitor`: Triggers quality checks on data updates (Quality Control)
-- `dataspoke-notification`: Sends alerts to owners (Self-Purifier)
+### Supporting Infrastructure
 
-#### 3. Operational Database (PostgreSQL)
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| Vector DB | Qdrant | Semantic search over metadata embeddings |
+| Message Broker | Kafka | Event streaming (shared with DataHub) |
+| Orchestration | Temporal | Durable workflow execution |
+| Operational DB | PostgreSQL | DataSpoke-specific operational data |
+| Cache | Redis | API response caching, rate limiting, sessions |
 
-**Purpose**: Store DataSpoke-specific operational data
+---
 
-**Tables**:
-- `ingestion_configs`: Custom ingestion configurations
-- `ingestion_runs`: Execution history and status
-- `quality_rules`: Custom quality rule definitions
-- `quality_results`: Quality check results over time
-- `health_scores`: Metadata health scores by entity (Self-Purifier)
-- `user_preferences`: User settings and notifications
+## Feature Architecture by User Group
 
-#### 4. Cache Layer (Redis)
+This section maps the MANIFESTO's feature taxonomy to architectural concerns. Detailed designs live in `spec/feature/` per feature.
 
-**Purpose**: Performance optimization
+### Data Engineering (DE) Group
 
-**Use Cases**:
-- API response caching (5-60 min TTL)
-- Rate limiting state
-- Session management
-- Real-time notification queue
+| Feature | Description | Key Infrastructure |
+|---------|-------------|-------------------|
+| **Deep Technical Spec Ingestion** | Collects platform-specific technical metadata (compression formats, Kafka replication levels, etc.) | Temporal workflows, DataHub SDK |
+| **Online Data Validator** | Time-series monitoring and validation API; supports point-in-time and dry-run validation | ML models (Prophet, Isolation Forest), PostgreSQL |
+| **Automated Doc Suggestions** | Source-code-based docs, similar-table differentiation, taxonomy/ontology proposals | LLM integration, Qdrant |
 
-### Orchestration Layer
+### Data Analysis (DA) Group
 
-**Technology**: Temporal (preferred) or Airflow (alternative)
+| Feature | Description | Key Infrastructure |
+|---------|-------------|-------------------|
+| **Natural Language Search** | Explore tables using natural language queries | Qdrant (vector similarity), LLM embeddings |
+| **Text-to-SQL Optimized Metadata** | Curated metadata focused on data content for accurate SQL generation | DataHub GraphQL, Qdrant |
+| **Online Data Validator** | Shared with DE group — same API, same backend | (shared with DE) |
 
-**Workflows**:
-```
-src/workflows/
-├── ingestion/          # Scheduled sync, custom source execution, backfill
-├── quality/            # Anomaly detection, rule validation, health scoring
-├── knowledge_base/     # Embedding generation and vector index maintenance
-└── notifications/      # Owner digest delivery (Self-Purifier)
-```
+### Data Governance (DG) Group
 
-**Why Temporal over Airflow**:
-- Better support for long-running workflows
-- Built-in retry and error handling
-- Easier testing and local development
-- Strong consistency guarantees
+| Feature | Description | Key Infrastructure |
+|---------|-------------|-------------------|
+| **Enterprise Metrics Dashboard** | Time-series dashboards: dataset counts, total volume, availability ratios | PostgreSQL, Temporal (scheduled collection) |
+| **Multi-Perspective Data Overview** | Taxonomy/ontology graph visualization, Medallion Architecture overview | Qdrant, DataHub GraphQL |
 
-**Airflow Alternative**: Use if existing Airflow infrastructure exists
+### Cross-Cutting Concerns
+
+| Concern | Approach |
+|---------|---------|
+| **Kafka Event Consumers** | Vector DB sync on metadata changes, quality check triggers, alert notifications |
+| **Temporal Workflows** | Scheduled ingestion, anomaly detection, embedding maintenance, metrics collection |
+| **PostgreSQL Tables** | Ingestion configs/runs, quality rules/results, health scores, user preferences |
 
 ---
 
@@ -332,10 +294,10 @@ src/workflows/
 | **Frontend** | Next.js + TypeScript | SSR, React ecosystem, type safety |
 | **API** | FastAPI | High performance, async support, auto docs |
 | **Backend** | Python 3.11+ | Rich data libraries, ML ecosystem |
-| **Vector DB** | Qdrant | High performance, simple deployment |
+| **Vector DB** | Qdrant | High performance, self-hostable, simple deployment |
 | **Message Broker** | Kafka | Standard for DataHub integration |
 | **Orchestration** | Temporal | Workflow durability, developer experience |
-| **Operational DB** | PostgreSQL | Robust, open-source, JSON support |
+| **Operational DB** | PostgreSQL | ACID guarantees, JSON support |
 | **Cache** | Redis | Industry standard, versatile |
 | **DataHub SDK** | acryl-datahub | Official Python SDK |
 | **Charts** | Highcharts / Recharts | Rich visualization library |
@@ -364,63 +326,56 @@ src/workflows/
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ External Data Sources                                        │
+│ External Data Sources                                       │
 │ (GitHub, SQL Logs, Slack, Custom APIs)                      │
 └────────────┬────────────────────────────────────────────────┘
              │
              ▼
 ┌────────────────────────────────────────────────────────────┐
-│ DataSpoke: Ingestion Service                                │
-│                                                              │
-│  1. Extract data from sources                               │
-│  2. Transform to DataHub metadata format                    │
-│  3. Enrich with LLM (if needed)                             │
-│  4. Validate against schemas                                │
+│ DataSpoke Backend: Ingestion (DE)                          │
+│                                                            │
+│  1. Extract data from sources                              │
+│  2. Transform to DataHub metadata format                   │
+│  3. Enrich with LLM (if applicable)                        │
+│  4. Validate against schemas                               │
 └────────────┬───────────────────────────────────────────────┘
              │ DataHub Python SDK
              ▼
 ┌────────────────────────────────────────────────────────────┐
-│ DataHub GMS (Hub)                                           │
-│  - Persist metadata                                         │
+│ DataHub GMS (Hub)                                          │
+│  - Persist metadata                                        │
 │  - Emit MetadataChangeEvent (MCE)                          │
 └────────────┬───────────────────────────────────────────────┘
              │ Kafka: MCE/MAE
              ▼
 ┌────────────────────────────────────────────────────────────┐
-│ DataSpoke: Event Consumers                                  │
-│                                                              │
-│  ┌─────────────────┐   ┌─────────────────┐                │
-│  │ Knowledge Base  │   │ Quality Control │                │
-│  │ Vector DB Sync  │   │ Anomaly Monitor │                │
-│  └─────────────────┘   └─────────────────┘                │
+│ DataSpoke Backend: Event Consumers                         │
+│                                                            │
+│  ┌───────────────────┐   ┌───────────────────┐             │
+│  │ Vector DB Sync    │   │ Validator Trigger │             │
+│  │ (DA: NL Search)   │   │ (DE: Quality)     │             │
+│  └───────────────────┘   └───────────────────┘             │
 └────────────────────────────────────────────────────────────┘
 ```
 
-### 2. Knowledge Base: Semantic Search Flow
+### 2. Semantic Search Flow (DA: Natural Language Search)
 
 ```
 User Query: "Find PII tables used by marketing"
       │
       ▼
 ┌─────────────────────────────────────────┐
-│ Frontend: Search Interface               │
+│ UI: Search Interface                    │
 └─────────────┬───────────────────────────┘
-              │ REST API
+              │ REST: /api/v1/spoke/da/search
               ▼
 ┌─────────────────────────────────────────┐
-│ API Layer: /knowledge-base/search       │
-│  - Validate query                        │
-│  - Extract filters                       │
-└─────────────┬───────────────────────────┘
-              │
-              ▼
-┌─────────────────────────────────────────┐
-│ Backend: Knowledge Base Service          │
-│  1. Generate query embedding (LLM)       │
-│  2. Vector similarity search (Qdrant)    │
-│  3. Apply filters (tags, ownership)      │
-│  4. Enrich with DataHub metadata         │
-│  5. Rank and score results               │
+│ API → Backend: Search Service           │
+│  1. Generate query embedding (LLM)      │
+│  2. Vector similarity search (Qdrant)   │
+│  3. Apply filters (tags, ownership)     │
+│  4. Enrich with DataHub metadata        │
+│  5. Rank and score results              │
 └─────────────┬───────────────────────────┘
               │
               ▼
@@ -429,87 +384,49 @@ User Query: "Find PII tables used by marketing"
 └─────────────────────────────────────────┘
 ```
 
-### 3. Context Verifier: Context Verification Flow (Online Verifier)
+### 3. Online Validation Flow (DE/DA: Online Data Validator)
 
 ```
-AI Agent: pipeline output to verify
+AI Agent or User: data to validate
       │
       ▼
 ┌─────────────────────────────────────────┐
-│ API Layer: /verification/context        │
-│  - Validate request schema               │
-│  - Authenticate AI agent caller          │
+│ API: /api/v1/spoke/de/validator         │
+│  - Validate request schema              │
+│  - Authenticate caller                  │
 └─────────────┬───────────────────────────┘
               │
               ▼
 ┌─────────────────────────────────────────┐
-│ Backend: Context Verifier Service        │
-│  1. Retrieve entity context (Knowledge   │
-│     Base + DataHub GraphQL)              │
-│  2. Check data quality status            │
-│  3. Validate schema / lineage            │
-│  4. Return verification result +         │
+│ Backend: Validator Service              │
+│  1. Retrieve entity context (DataHub    │
+│     GraphQL + vector search)            │
+│  2. Check data quality status           │
+│  3. Validate schema / lineage           │
+│  4. Return validation result +          │
 │     recommendations                     │
 └─────────────┬───────────────────────────┘
               │
               ▼
 ┌─────────────────────────────────────────┐
-│ Verification Result:                    │
-│   status, issues, recommendations,     │
+│ Validation Result:                      │
+│   status, issues, recommendations,      │
 │   alternative_entities                  │
 └─────────────────────────────────────────┘
 ```
 
-### 4. Quality Control Flow
-
-```
-┌─────────────────────────────────────────┐
-│ Temporal Workflow: Daily Quality Scan    │
-└─────────────┬───────────────────────────┘
-              │ Schedule: 0 8 * * *
-              ▼
-┌─────────────────────────────────────────┐
-│ 1. Fetch datasets from DataHub          │
-└─────────────┬───────────────────────────┘
-              │
-              ▼
-┌─────────────────────────────────────────┐
-│ 2. For each dataset:                     │
-│    - Fetch historical metrics            │
-│    - Run Prophet model                   │
-│    - Detect anomalies                    │
-└─────────────┬───────────────────────────┘
-              │
-              ▼
-┌─────────────────────────────────────────┐
-│ 3. If anomaly detected:                  │
-│    - Create alert                        │
-│    - Notify owners (email/Slack)         │
-│    - Update DataHub with quality aspect  │
-└─────────────┬───────────────────────────┘
-              │
-              ▼
-┌─────────────────────────────────────────┐
-│ 4. Store results in PostgreSQL           │
-│    - Historical trend analysis           │
-│    - Dashboard visualization             │
-└─────────────────────────────────────────┘
-```
-
-### 5. DataHub Integration Patterns
+### 4. DataHub Integration Patterns
 
 #### Pattern A: Read-Only Queries
 ```python
 from datahub.ingestion.graph.client import DatahubClientConfig, DataHubGraph
 
-# Query DataHub GraphQL
 graph = DataHubGraph(DatahubClientConfig(server="http://datahub-gms:8080"))
 dataset = graph.get_dataset(urn="urn:li:dataset:...")
 ```
 
 #### Pattern B: Write Metadata
 ```python
-from datahub.emitter.mce_builder import make_dataset_urn
 from datahub.emitter.rest_emitter import DatahubRestEmitter
 
 emitter = DatahubRestEmitter("http://datahub-gms:8080")
@@ -524,7 +441,6 @@ consumer = KafkaConsumer(
     'MetadataChangeEvent_v1',
     bootstrap_servers='datahub-broker:9092'
 )
-
 for message in consumer:
     handle_metadata_change(message.value)
 ```
@@ -535,7 +451,7 @@ for message in consumer:
 
 ### Kubernetes Architecture
 
-**Assumption**: DataHub exists in a separate namespace or cluster
+**Assumption**: DataHub exists in a separate namespace or cluster.
 
 ```yaml
 # DataSpoke namespace only
@@ -633,13 +549,16 @@ ConfigMap:
 dataspoke-baseline/
 ├── api/                # Standalone OpenAPI 3.0 specs (API-first design)
 ├── src/
-│   ├── frontend/       # Next.js application
-│   ├── api/            # FastAPI application (routers, schemas, middleware)
-│   ├── backend/        # Feature services (ingestion, quality, self_purifier, knowledge_base, context_verifier)
-│   ├── workflows/      # Temporal workflows
+│   ├── frontend/       # Next.js application (user-group pages: de, da, dg)
+│   ├── api/            # FastAPI application (routers per user group, schemas, middleware)
+│   ├── backend/        # Feature service implementations (detail in spec/feature/)
+│   ├── workflows/      # Temporal workflow definitions
 │   └── shared/         # DataHub client wrappers, shared models
 ├── helm-charts/        # Kubernetes deployment manifests
 ├── spec/               # Architecture specs and planning documents
+│   ├── feature/        # Common/cross-cutting feature specs
+│   ├── feature/spoke/  # User-group-specific feature specs (DE/DA/DG)
+│   └── plan/           # Chronological decision plans/logs
 ├── dev_env/            # Local Kubernetes dev environment scripts
 ├── ref/                # External source code for AI reference (version-locked to dev_env; git-ignored)
 │   └── github/datahub/ # DataHub OSS source (v1.4.0) — entity models, GraphQL, SDK, ingestion
@@ -654,247 +573,50 @@ dataspoke-baseline/
 
 ### 1. Why FastAPI over Flask/Django?
 
-**Decision**: FastAPI for API layer
-
-**Rationale**:
-- ✅ Async/await support for high concurrency
-- ✅ Automatic OpenAPI documentation generation
-- ✅ Pydantic for request/response validation
-- ✅ High performance (comparable to Node.js)
-- ✅ Type hints for better IDE support
-- ❌ Flask: Less modern, no async, manual docs
-- ❌ Django: Too heavy, unnecessary ORM overhead
+- Async/await support for high concurrency
+- Automatic OpenAPI documentation generation
+- Pydantic for request/response validation
+- High performance (comparable to Node.js)
+- Type hints for better IDE support
 
 ### 2. Why Next.js over Create React App?
 
-**Decision**: Next.js for frontend
-
-**Rationale**:
-- ✅ Server-side rendering improves initial load
-- ✅ File-based routing simplifies structure
-- ✅ API routes for simple backend needs
-- ✅ Built-in optimization (images, fonts)
-- ✅ Large ecosystem and community
-- ❌ CRA: No SSR, deprecated
+- Server-side rendering improves initial load
+- File-based routing simplifies structure
+- Built-in optimization (images, fonts)
+- Large ecosystem and community
 
 ### 3. Why Qdrant over Pinecone/Weaviate?
 
-**Decision**: Qdrant for vector database
+- Open-source and self-hostable
+- High performance (Rust-based)
+- Simple deployment (single binary)
+- Cost-effective for on-premise
 
-**Rationale**:
-- ✅ Open-source and self-hostable
-- ✅ High performance (Rust-based)
-- ✅ Simple deployment (single binary)
-- ✅ Good Python SDK
-- ✅ Cost-effective for on-premise
-- ❌ Pinecone: Vendor lock-in, expensive at scale
-- ❌ Weaviate: More complex, heavier resource usage
-
-**Weaviate Alternative**: Consider if:
-- Need multi-tenancy features
-- Require complex schema relationships
-- Want GraphQL-native interface
+**Consider Weaviate if**: multi-tenancy features, complex schema relationships, or GraphQL-native interface are needed.
 
 ### 4. Why Temporal over Airflow?
 
-**Decision**: Temporal (preferred), Airflow (alternative)
+- Better for long-running workflows
+- Built-in retry and error handling
+- Easier testing (workflow-as-code)
+- Strong consistency guarantees
 
-**Rationale for Temporal**:
-- ✅ Better for long-running workflows
-- ✅ Built-in retry and error handling
-- ✅ Easier testing (workflow-as-code)
-- ✅ Strong consistency guarantees
-- ✅ Better developer experience
-
-**When to use Airflow**:
-- Existing Airflow infrastructure
-- Batch-oriented workloads
-- Team familiarity
-- Visual DAG editor requirement
+**Use Airflow if**: existing Airflow infrastructure exists or batch-oriented DAG editing is required.
 
 ### 5. Why Standalone API Documentation?
 
-**Decision**: API specs in separate `/api` directory
+- AI agents can iterate on API design without backend
+- Frontend development starts before backend implementation
+- API mocking and contract testing without running services
+- Documentation-driven development
 
-**Rationale**:
-- ✅ AI agents can iterate on API design without backend
-- ✅ Frontend development can start before backend implementation
-- ✅ API mocking and testing without running services
-- ✅ Clear contract between teams
-- ✅ Documentation-driven development
+### 6. Why PostgreSQL over MongoDB?
 
-### 6. Why Strict Layer Separation?
-
-**Decision**: Separate frontend, API, backend completely
-
-**Rationale**:
-- ✅ Independent scaling (frontend ≠ backend resources)
-- ✅ Technology flexibility (swap Next.js for Vue later)
-- ✅ Security boundaries (frontend never accesses DB)
-- ✅ Team autonomy (frontend/backend teams work independently)
-- ✅ Clear ownership and responsibilities
-
-### 7. Knowledge Base and Context Verifier: Sibling Services
-
-**Decision**: `knowledge_base/` and `context_verifier/` are implemented as sibling backend services, not nested.
-
-**Rationale**:
-- ✅ Dependency direction is explicit: Verifier *calls* Knowledge Base; nesting implied ownership
-- ✅ Different scaling axes: Knowledge Base scales on storage/throughput; Verifier scales on request rate and latency
-- ✅ Verifier may consume inputs beyond Knowledge Base (e.g., quality scores from Quality Control)
-- ✅ Independent testability — Verifier can be unit-tested by mocking the Knowledge Base interface
-- ❌ Nested approach: hides the consumer/producer relationship; conflates data layer with validation logic
-
-**Product taxonomy unchanged**: The manifesto groups them as "Knowledge Base & Verifier" — this remains the canonical feature group label. The separation is an implementation concern only.
-
-### 8. PostgreSQL vs MongoDB?
-
-**Decision**: PostgreSQL for operational database
-
-**Rationale**:
-- ✅ ACID guarantees for critical data
-- ✅ JSON support (JSONB) for flexibility
-- ✅ Mature ecosystem and tooling
-- ✅ Better for relational data (ingestion configs, runs)
-- ✅ Strong consistency needed for workflows
-- ❌ MongoDB: Less suitable for structured operational data
-
----
-
-## Security Considerations
-
-### 1. Authentication & Authorization
-
-```python
-# JWT-based authentication
-from fastapi import Depends, HTTPException
-from fastapi.security import HTTPBearer
-
-security = HTTPBearer()
-
-async def verify_token(credentials: HTTPBearer = Depends(security)):
-    # Verify JWT token
-    # Check user permissions
-    # Return user context
-```
-
-**Strategy**:
-- JWT tokens for API authentication
-- Integration with corporate SSO (OIDC/SAML)
-- Role-based access control (RBAC)
-- DataHub permissions synchronized
-
-### 2. Data Security
-
-- **At Rest**: Encrypt PostgreSQL volumes, Qdrant storage
-- **In Transit**: TLS/SSL for all communications
-- **Secrets**: Use Kubernetes secrets or HashiCorp Vault
-- **Audit Logging**: Log all data access and modifications
-
-### 3. Network Security
-
-- **Ingress**: WAF (Web Application Firewall)
-- **Internal**: Service mesh (Istio) for mTLS between services
-- **Egress**: Whitelist external API calls
-- **Rate Limiting**: Per-user and per-IP limits
-
----
-
-## Infrastructure Observability
-
-> **Note**: This section covers *system-level* infrastructure observability (metrics, logs, traces). This is distinct from the **Self-Purifier** feature group, which monitors *metadata health scores* and *data quality* at the data catalog level.
-
-### Metrics (Prometheus)
-
-```yaml
-Metrics to collect:
-  - API latency (p50, p95, p99)
-  - Error rates by endpoint
-  - Vector DB query performance
-  - Kafka consumer lag
-  - Quality check execution time
-  - Ingestion job success rate
-```
-
-### Logging (ELK Stack or Loki)
-
-```yaml
-Log aggregation:
-  - Structured logging (JSON format)
-  - Correlation IDs across services
-  - Error stack traces
-  - User action audit logs
-```
-
-### Tracing (Jaeger or Tempo)
-
-```yaml
-Distributed tracing:
-  - End-to-end request tracing
-  - Service dependency mapping
-  - Performance bottleneck identification
-```
-
-### Dashboards (Grafana)
-
-- System health overview
-- API performance metrics
-- Data quality trends
-- Ingestion job status
-- User activity analytics
-
----
-
-## Scalability Considerations
-
-### Horizontal Scaling
-
-| Component | Scaling Strategy |
-|-----------|-----------------|
-| Frontend | Add replicas (stateless) |
-| API | Add replicas (stateless) |
-| Backend Workers | Add replicas (task queue) |
-| Qdrant | Sharding by collection |
-| Kafka | Add brokers and partitions |
-| PostgreSQL | Read replicas for queries |
-
-### Performance Optimizations
-
-- **Caching**: Redis for frequently accessed data
-- **CDN**: Static assets served via CDN
-- **Connection Pooling**: Database connection pooling
-- **Batch Processing**: Bulk operations for metadata updates
-- **Async I/O**: Non-blocking operations throughout
-
----
-
-## Implementation Phases
-
-### Phase 1: Foundation & Hub Integration
-- Deploy DataSpoke alongside existing DataHub
-- Configure Kafka consumer for DataHub events
-- Establish Hub-Spoke API contracts
-- Stand up Management & Orchestration layer (Temporal) shared across all feature groups
-
-### Phase 2: Ingestion
-- Develop custom connectors for legacy and unstructured sources
-- Register first ingestion workflows with the Management & Orchestration layer
-- Migrate from manual ingestion processes to DataSpoke
-
-### Phase 3: Quality Control
-- Deploy ML models for anomaly detection (Prophet, Isolation Forest)
-- Configure alerting rules
-- Integrate with incident management (PagerDuty, Slack)
-
-### Phase 4: Knowledge Base & Verifier
-- Build vector embeddings for all metadata (Semantic Search API)
-- Implement Context Verification API (Online Verifier for AI coding loops)
-- Roll out to users and AI agent integrations incrementally
-
-### Phase 5: Self-Purifier
-- Deploy Documentation Auditor (automated metadata error scanning)
-- Launch Health Score Dashboard (per-team scoring and trend tracking)
-- Implement AI-driven ontology consistency checks and corrections
+- ACID guarantees for critical operational data
+- JSON support (JSONB) for flexibility
+- Mature ecosystem and tooling
+- Better for structured relational data (ingestion configs, quality results)
 
 ---
 
@@ -927,10 +649,6 @@ kubectl get pods -n dataspoke
 alembic upgrade head      # Apply migrations
 alembic revision --autogenerate -m "message"
 ```
-
-### Configuration Examples
-
-See `config/` directory for environment-specific configurations.
 
 ### Further Reading
 
