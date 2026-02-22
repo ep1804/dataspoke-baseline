@@ -1,6 +1,6 @@
 # DEV_ENV — Local Development Environment
 
-> **Version**: 0.4 | **Status**: Draft | **Date**: 2026-02-21
+> **Version**: 0.5 | **Status**: Draft | **Date**: 2026-02-22
 
 ## Table of Contents
 1. [Overview](#overview)
@@ -10,24 +10,25 @@
 5. [Configuration](#configuration)
 6. [DataHub Installation](#datahub-installation)
 7. [dataspoke-example Installation](#dataspoke-example-installation)
-8. [Resource Sizing](#resource-sizing)
-9. [Install & Uninstall Flow](#install--uninstall-flow)
-10. [Troubleshooting](#troubleshooting)
-11. [Open Questions](#open-questions)
-12. [References](#references)
+8. [DataSpoke Stack Installation](#dataspoke-stack-installation)
+9. [Resource Sizing](#resource-sizing)
+10. [Install & Uninstall Flow](#install--uninstall-flow)
+11. [Troubleshooting](#troubleshooting)
+12. [Open Questions](#open-questions)
+13. [References](#references)
 
 ---
 
 ## Overview
 
-`dev_env/` provides a fully scripted local Kubernetes environment for developing and testing DataSpoke. It provisions three namespaces — `datahub-01`, `dataspoke-team1`, `dummy-data1` (defaults; see [Configuration](#configuration)) — mirroring the production separation of concerns described in `ARCHITECTURE.md`.
+`dev_env/` provides a fully scripted local Kubernetes environment for developing and testing DataSpoke. It provisions three namespaces — `datahub-01`, `dataspoke-01`, `dummy-data1` (defaults; see [Configuration](#configuration)) — mirroring the production separation of concerns described in `ARCHITECTURE.md`. The `dataspoke-01` namespace hosts the full DataSpoke application stack: frontend, API, workers, Temporal, Qdrant, PostgreSQL, and Redis.
 
 DataHub (the hub) is installed locally only for development and testing purposes. In production, DataHub is deployed separately and DataSpoke connects to it externally.
 
 ```
 Local Kubernetes Cluster (minikube / docker-desktop)
-┌───────────────────────────────────────────────────────────────┐
-│                                                               │
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
 │  ┌─────────────────────┐   ┌──────────────────────────────┐  │
 │  │  datahub-01         │   │  dummy-data1                 │  │
 │  │                     │   │                              │  │
@@ -35,12 +36,19 @@ Local Kubernetes Cluster (minikube / docker-desktop)
 │  │  - Frontend         │◄──┤  - Kafka (example src)       │  │
 │  │  - MAE/MCE consumer │   │                              │  │
 │  │  - Kafka + ZK       │   └──────────────────────────────┘  │
-│  │  - Elasticsearch    │                                      │
+│  │  - Elasticsearch    │                                     │
 │  │  - MySQL            │   ┌──────────────────────────────┐  │
-│  │                     │   │  dataspoke-team1             │  │
-│  └─────────────────────┘   │  (placeholder — empty)       │  │
-│                             └──────────────────────────────┘  │
-└───────────────────────────────────────────────────────────────┘
+│  │                     │   │  dataspoke-01                │  │
+│  └─────────────────────┘   │                              │  │
+│                            │  - dataspoke-frontend        │  │
+│                            │  - dataspoke-api             │  │
+│                            │  - dataspoke-workers         │  │
+│                            │  - temporal-server           │  │
+│                            │  - qdrant                    │  │
+│                            │  - postgresql                │  │
+│                            │  - redis                     │  │
+│                            └──────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -53,11 +61,11 @@ Local Kubernetes Cluster (minikube / docker-desktop)
 - DataHub with **Elasticsearch graph backend** for lineage support (Neo4j is not required)
 - Example data source (PostgreSQL) in a dedicated namespace for testing DataHub ingestion workflows
 - Idempotent installs — re-running `install.sh` is always safe
-- Resource-constrained sizing that fits within ~59% of a typical local cluster (8 CPU / 14 GB RAM)
+- Resource-constrained sizing that fits within ~80% of a typical local cluster (8+ CPU / 16 GB RAM)
 
 ### Non-Goals
 - Production deployment (use `helm-charts/dataspoke` for production)
-- DataSpoke application services (installed separately when source code exists)
+- DataSpoke application source code (services are provisioned as infrastructure; app code is deployed separately)
 - External data source connectivity (example sources are in-cluster only)
 - High availability or data persistence between dev environment resets
 
@@ -68,7 +76,7 @@ Local Kubernetes Cluster (minikube / docker-desktop)
 | Namespace | Purpose | Managed By |
 |-----------|---------|------------|
 | `datahub-01` | DataHub platform + all backing services | `datahub/install.sh` via Helm |
-| `dataspoke-team1` | DataSpoke application (placeholder for now) | `dev_env/install.sh` (namespace only) |
+| `dataspoke-01` | DataSpoke application stack (frontend, API, workers, Temporal, Qdrant, PostgreSQL, Redis) | `dataspoke/install.sh` via Helm |
 | `dummy-data1` | Example PostgreSQL + Kafka for ingestion testing | `dataspoke-example/install.sh` via kubectl |
 
 > **Note**: The namespace names above are the **default values** shipped in `dev_env/.env`. All scripts read these names exclusively from environment variables — `$DATASPOKE_KUBE_DATAHUB_NAMESPACE`, `$DATASPOKE_KUBE_DATASPOKE_NAMESPACE`, and `$DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE` — and never hardcode them. You can rename the namespaces freely by editing `.env` before running `install.sh`. Namespace names used elsewhere in this document are the defaults and serve as illustrative examples only.
@@ -93,6 +101,11 @@ dev_env/
 │   ├── prerequisites-values.yaml         # Kafka, ZK, Elasticsearch, MySQL sizing
 │   └── values.yaml                       # DataHub component sizing + service name overrides
 │
+├── dataspoke/
+│   ├── install.sh                        # Installs DataSpoke stack via Helm / kubectl
+│   ├── uninstall.sh                      # Uninstalls DataSpoke stack
+│   └── values.yaml                       # DataSpoke component sizing (frontend, API, workers, infra)
+│
 └── dataspoke-example/
     ├── install.sh                        # Applies manifests and waits for readiness
     ├── uninstall.sh                      # Deletes manifests
@@ -105,7 +118,7 @@ dev_env/
 
 ## Configuration
 
-All scripts source `dev_env/.env`. This file is **not committed** (listed in `.gitignore`). Copy `dev_env/.env.example` to `dev_env/.env` and fill in your passwords before first use.
+All scripts source `dev_env/.env`. This file is **not committed** (listed in `.gitignore`). Copy `dev_env/.env.example` to `dev_env/.env` and fill in your values before first use.
 
 Variables:
 
@@ -122,7 +135,34 @@ Variables:
 # --- Kubernetes (shared) -----------------------------------------------------
 DATASPOKE_KUBE_CLUSTER=minikube
 DATASPOKE_KUBE_DATAHUB_NAMESPACE=datahub-01
-DATASPOKE_KUBE_DATASPOKE_NAMESPACE=dataspoke-team1
+DATASPOKE_KUBE_DATASPOKE_NAMESPACE=dataspoke-01
+
+# --- LLM API (shared) --------------------------------------------------------
+# Provider: gemini, openai, anthropic, azure
+DATASPOKE_LLM_PROVIDER=gemini
+DATASPOKE_LLM_API_KEY=<your-api-key>
+DATASPOKE_LLM_MODEL=gemini-2.0-flash
+
+# --- DataHub Connection (shared) ---------------------------------------------
+# GMS endpoint for acryl-datahub SDK (read/write)
+DATASPOKE_DATAHUB_GMS_URL=http://datahub-datahub-gms.${DATASPOKE_KUBE_DATAHUB_NAMESPACE}.svc.cluster.local:8080
+# Kafka brokers for MCE/MAE event streaming
+DATASPOKE_DATAHUB_KAFKA_BROKERS=datahub-prerequisites-kafka.${DATASPOKE_KUBE_DATAHUB_NAMESPACE}.svc.cluster.local:9092
+
+# --- DataSpoke Services (shared) ---------------------------------------------
+# PostgreSQL for operational DB (ingestion configs, quality results, health scores, ontology graph)
+DATASPOKE_POSTGRES_USER=dataspoke
+DATASPOKE_POSTGRES_PASSWORD=<16+ char password>
+DATASPOKE_POSTGRES_DB=dataspoke
+
+# Redis for validation caching, API response caching, rate limiting
+DATASPOKE_REDIS_PASSWORD=<16+ char password>
+
+# Qdrant for vector DB (semantic search, embedding storage)
+DATASPOKE_QDRANT_API_KEY=<optional-api-key>
+
+# Temporal for workflow orchestration
+DATASPOKE_TEMPORAL_NAMESPACE=dataspoke
 
 # --- Kubernetes / Dev only ----------------------------------------------------
 DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE=dummy-data1
@@ -133,6 +173,10 @@ DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_GMS_PORT=9004
 DATASPOKE_DEV_KUBE_DATAHUB_MYSQL_ROOT_PASSWORD=<16+ char password>
 DATASPOKE_DEV_KUBE_DATAHUB_MYSQL_PASSWORD=<16+ char password>
 
+# DataSpoke port-forward (dev only)
+DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_UI_PORT=3000
+DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_API_PORT=8000
+
 # example-postgres credentials (dev only)
 DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_USER=postgres
 DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_PASSWORD=ExampleDev2024!
@@ -141,9 +185,11 @@ DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_PORT_FORWARD_PORT=9102
 DATASPOKE_DEV_KUBE_DUMMY_DATA_KAFKA_PORT_FORWARD_PORT=9104
 ```
 
-Sub-scripts (`datahub/install.sh`, `dataspoke-example/install.sh`) source `../.env` relative to their own `SCRIPT_DIR`. The top-level scripts source `./.env`.
+Sub-scripts (`datahub/install.sh`, `dataspoke/install.sh`, `dataspoke-example/install.sh`) source `../.env` relative to their own `SCRIPT_DIR`. The top-level scripts source `./.env`.
 
 **Password policy**: all passwords must be at minimum 15 characters, mixed case with at least one special character (e.g., `DatahubDev2024!`).
+
+**API key policy**: LLM API keys (`DATASPOKE_LLM_API_KEY`) and optional service keys (`DATASPOKE_QDRANT_API_KEY`) must never be committed to version control. The `.env` file is gitignored; for CI/CD, inject these via Kubernetes Secrets or a secrets manager.
 
 ---
 
@@ -291,10 +337,54 @@ This Kafka instance is **separate** from DataHub's prerequisites Kafka in `datah
 
 ---
 
+## DataSpoke Stack Installation
+
+The `dataspoke-01` namespace hosts the DataSpoke application infrastructure as defined in `ARCHITECTURE.md` §Deployment Architecture.
+
+### Components
+
+| Component | Type | Image | Memory Limit | CPU Limit | PV |
+|-----------|------|-------|-------------|-----------|-----|
+| dataspoke-frontend | Deployment | Next.js (custom) | 256 Mi | 250m | — |
+| dataspoke-api | Deployment | FastAPI (custom) | 512 Mi | 500m | — |
+| dataspoke-workers | Deployment | Python (custom) | 1024 Mi | 500m | — |
+| temporal-server | Deployment | temporalio/server | 1024 Mi | 500m | — |
+| qdrant | StatefulSet | qdrant/qdrant | 1024 Mi | 500m | 10 Gi |
+| postgresql | StatefulSet | postgres:15 | 512 Mi | 500m | 10 Gi |
+| redis | Deployment | redis:7 | 256 Mi | 250m | — |
+
+### dataspoke/install.sh Steps
+
+1. Source `../.env`
+2. Verify `kubectl` and `helm` are installed
+3. Ensure `$DATASPOKE_KUBE_DATASPOKE_NAMESPACE` namespace exists
+4. Create Kubernetes Secrets from `.env` variables:
+   - `dataspoke-postgres-secret` — `DATASPOKE_POSTGRES_USER`, `DATASPOKE_POSTGRES_PASSWORD`, `DATASPOKE_POSTGRES_DB`
+   - `dataspoke-redis-secret` — `DATASPOKE_REDIS_PASSWORD`
+   - `dataspoke-llm-secret` — `DATASPOKE_LLM_PROVIDER`, `DATASPOKE_LLM_API_KEY`, `DATASPOKE_LLM_MODEL`
+   - `dataspoke-qdrant-secret` — `DATASPOKE_QDRANT_API_KEY` (optional)
+5. Deploy infrastructure components (PostgreSQL, Redis, Qdrant, Temporal) via Helm/kubectl
+6. Deploy application components (frontend, API, workers) via kubectl
+7. Wait for all deployments to be ready
+8. Print port-forward instructions for UI (`:3000`) and API (`:8000`)
+
+### Secrets (created before deployment)
+
+| Secret Name | Namespace | Keys |
+|-------------|-----------|------|
+| `dataspoke-postgres-secret` | `$DATASPOKE_KUBE_DATASPOKE_NAMESPACE` | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` |
+| `dataspoke-redis-secret` | `$DATASPOKE_KUBE_DATASPOKE_NAMESPACE` | `REDIS_PASSWORD` |
+| `dataspoke-llm-secret` | `$DATASPOKE_KUBE_DATASPOKE_NAMESPACE` | `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` |
+| `dataspoke-qdrant-secret` | `$DATASPOKE_KUBE_DATASPOKE_NAMESPACE` | `QDRANT_API_KEY` |
+
+Secrets are created idempotently using `--dry-run=client -o yaml | kubectl apply -f -`.
+
+---
+
 ## Resource Sizing
 
-Cluster capacity: **8 CPU / 14 GB RAM / 150 GB storage**.
-Target usage for `dev_env`: **~59%** -> ~8.3 GiB RAM, ~6.9 CPU limits.
+Cluster capacity: **8 CPU / 16 GB RAM / 150 GB storage**.
+Target usage for `dev_env`: **~80%** -> ~12.9 GiB RAM, ~9.9 CPU limits.
 
 ### Memory Budget (limits)
 
@@ -311,26 +401,34 @@ Target usage for `dev_env`: **~59%** -> ~8.3 GiB RAM, ~6.9 CPU limits.
 | datahub-mae-consumer | datahub-01 | 512 Mi | 1536Mi (-67%) | Low event volume in dev |
 | datahub-mce-consumer | datahub-01 | 512 Mi | 1536Mi (-67%) | Low event volume in dev |
 | datahub-actions | datahub-01 | 256 Mi | 512Mi (-50%) | Lightweight Python process |
+| dataspoke-frontend | dataspoke-01 | 256 Mi | — | Next.js SSR, single dev user |
+| dataspoke-api | dataspoke-01 | 512 Mi | — | FastAPI, Pydantic validation |
+| dataspoke-workers | dataspoke-01 | 1024 Mi | — | ML/LLM workloads (embedding, anomaly detection) |
+| temporal-server | dataspoke-01 | 1024 Mi | — | Workflow orchestration engine |
+| qdrant | dataspoke-01 | 1024 Mi | — | Vector DB for semantic search |
+| postgresql (dataspoke) | dataspoke-01 | 512 Mi | — | Operational DB (configs, scores, ontology) |
+| redis | dataspoke-01 | 256 Mi | — | Cache, rate limiting |
 | example-postgres | dummy-data1 | 256 Mi | — | Minimal example source |
 | example-kafka | dummy-data1 | 512 Mi | — | KRaft mode, no ZooKeeper |
-| **Total** | | **~8.3 Gi** | | |
+| **Total** | | **~12.9 Gi** | | |
 
 ### Comparison with Previous Spec (v0.1)
 
-| Change | v0.1 | v0.2 | v0.3 | v0.4 (current) |
-|--------|------|------|------|----------------|
-| Neo4j | 2048 Mi | 0 | 0 | 0 |
-| Elasticsearch | 3072 Mi | 1536 Mi | 2560 Mi | 2560 Mi |
-| MySQL (prereqs) | 768 Mi | 512 Mi | 768 Mi | 768 Mi |
-| Kafka (prereqs) | 768 Mi | 512 Mi | 512 Mi | 512 Mi |
-| GMS | 2048 Mi | 1536 Mi | 1536 Mi | 1536 Mi |
-| example-mysql | — | 256 Mi | 0 (removed) | 0 |
-| example-kafka | — | — | — | 512 Mi |
-| **Total** | **~10.8 Gi** | **~6.4 Gi** | **~7.8 Gi** | **~8.3 Gi** |
+| Change | v0.1 | v0.2 | v0.3 | v0.4 | v0.5 (current) |
+|--------|------|------|------|------|----------------|
+| Neo4j | 2048 Mi | 0 | 0 | 0 | 0 |
+| Elasticsearch | 3072 Mi | 1536 Mi | 2560 Mi | 2560 Mi | 2560 Mi |
+| MySQL (prereqs) | 768 Mi | 512 Mi | 768 Mi | 768 Mi | 768 Mi |
+| Kafka (prereqs) | 768 Mi | 512 Mi | 512 Mi | 512 Mi | 512 Mi |
+| GMS | 2048 Mi | 1536 Mi | 1536 Mi | 1536 Mi | 1536 Mi |
+| example-mysql | — | 256 Mi | 0 (removed) | 0 | 0 |
+| example-kafka | — | — | — | 512 Mi | 512 Mi |
+| dataspoke-01 stack | — | — | — | — | 4608 Mi |
+| **Total** | **~10.8 Gi** | **~6.4 Gi** | **~7.8 Gi** | **~8.3 Gi** | **~12.9 Gi** |
 
-The revised budget of **~8.3 Gi** targets ~59% of the 14 GB cluster, leaving ~4.2 GiB headroom for Kubernetes system components (kubelet, CoreDNS, kube-proxy), Helm setup/upgrade jobs (which can temporarily consume up to 2Gi for `datahubSystemUpdate`), and future DataSpoke sidecar services. The increase from v0.3 (~7.8 Gi) adds a KRaft-mode Kafka instance in `dummy-data1` for testing Kafka-based ingestion scenarios. The v0.3 increase from v0.2 (~6.4 Gi) reflected field-tested limits: Elasticsearch and MySQL both OOM-killed at their previous limits during concurrent startup on a fresh cluster.
+The revised budget of **~12.9 Gi** targets ~80% of the 16 GB cluster, leaving ~3.1 GiB headroom for Kubernetes system components (kubelet, CoreDNS, kube-proxy) and Helm setup/upgrade jobs (which can temporarily consume up to 2Gi for `datahubSystemUpdate`). The increase from v0.4 (~8.3 Gi) adds the full DataSpoke application stack in `dataspoke-01` (~4.6 Gi): frontend, API, workers, Temporal, Qdrant, PostgreSQL, and Redis. The v0.4 increase from v0.3 (~7.8 Gi) added a KRaft-mode Kafka instance in `dummy-data1`. Earlier increases reflected field-tested limits for Elasticsearch and MySQL OOM issues.
 
-The DataHub documentation states a minimum of **2 CPU / 8 GB RAM** for running DataHub with all dependencies. Our budget fits within this envelope while adding explicit resource limits that the upstream chart often omits.
+The DataHub documentation states a minimum of **2 CPU / 8 GB RAM** for running DataHub with all dependencies. With the addition of the DataSpoke stack, the minimum cluster requirement increases to **16 GB RAM / 8+ CPUs**. Explicit resource limits are set for all components to prevent contention on the constrained dev cluster.
 
 ### CPU Budget (limits)
 
@@ -347,11 +445,18 @@ The DataHub documentation states a minimum of **2 CPU / 8 GB RAM** for running D
 | datahub-mae-consumer | datahub-01 | 500m |
 | datahub-mce-consumer | datahub-01 | 500m |
 | datahub-actions | datahub-01 | 200m |
+| dataspoke-frontend | dataspoke-01 | 250m |
+| dataspoke-api | dataspoke-01 | 500m |
+| dataspoke-workers | dataspoke-01 | 500m |
+| temporal-server | dataspoke-01 | 500m |
+| qdrant | dataspoke-01 | 500m |
+| postgresql (dataspoke) | dataspoke-01 | 500m |
+| redis | dataspoke-01 | 250m |
 | example-postgres | dummy-data1 | 500m |
 | example-kafka | dummy-data1 | 500m |
-| **Sum of limits** | | **6900m** |
+| **Sum of limits** | | **9900m** |
 
-CPU limits total 6.9 cores. Since pods rarely hit their limits simultaneously, actual CPU usage is well within the 8 CPU budget. The upstream DataHub chart does **not** set CPU limits for runtime components (only requests), but explicit limits are added here to prevent any single component from starving others on a constrained dev cluster.
+CPU limits total 9.9 cores. Since pods rarely hit their limits simultaneously, actual CPU usage is well within the budget on a 16 GB / 8+ CPU cluster. The upstream DataHub chart does **not** set CPU limits for runtime components (only requests), but explicit limits are added here to prevent any single component from starving others on a constrained dev cluster.
 
 ---
 
@@ -366,6 +471,7 @@ CPU limits total 6.9 cores. Since pods rarely hit their limits simultaneously, a
   ├── kubectl config use-context $DATASPOKE_KUBE_CLUSTER
   ├── create namespaces: $DATASPOKE_KUBE_DATAHUB_NAMESPACE, $DATASPOKE_KUBE_DATASPOKE_NAMESPACE, $DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE (if not exists)
   ├── call datahub/install.sh
+  ├── call dataspoke/install.sh
   ├── call dataspoke-example/install.sh
   └── print summary + port-forward instructions
 ```
@@ -377,6 +483,7 @@ CPU limits total 6.9 cores. Since pods rarely hit their limits simultaneously, a
   ├── source .env
   ├── prompt: "Remove all dev_env resources? [y/N]"
   ├── call dataspoke-example/uninstall.sh
+  ├── call dataspoke/uninstall.sh
   ├── call datahub/uninstall.sh
   └── prompt: "Delete namespaces ($DATASPOKE_KUBE_DATAHUB_NAMESPACE, $DATASPOKE_KUBE_DATASPOKE_NAMESPACE, $DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE)? [y/N]"
 ```
@@ -422,7 +529,7 @@ CPU limits total 6.9 cores. Since pods rarely hit their limits simultaneously, a
 **Fix**:
 1. Check node allocatable resources: `kubectl describe node`
 2. Stop other resource-heavy workloads or increase Docker Desktop memory allocation (Settings → Resources).
-3. The full dev environment requires ~8.3 GiB memory limits and ~6.9 CPU limits — a 14 GB / 8 CPU cluster is the minimum.
+3. The full dev environment requires ~12.9 GiB memory limits and ~9.9 CPU limits — a 16 GB / 8+ CPU cluster is the minimum.
 
 ---
 
@@ -452,7 +559,7 @@ CPU limits total 6.9 cores. Since pods rarely hit their limits simultaneously, a
 ## Open Questions
 
 - [ ] Should `dataspoke-example` sources pre-populate sample data (seed SQL scripts) for realistic ingestion testing?
-- [ ] As DataSpoke application code is written, what services (Qdrant, Temporal, Redis, PostgreSQL) should be added to the `dataspoke` namespace in `dev_env`? A `dataspoke/install.sh` sub-script will be needed.
+- [x] ~~As DataSpoke application code is written, what services (Qdrant, Temporal, Redis, PostgreSQL) should be added to the `dataspoke` namespace in `dev_env`?~~ **Resolved**: Added full DataSpoke stack (frontend, API, workers, Temporal, Qdrant, PostgreSQL, Redis) to `dataspoke-01` namespace via `dataspoke/install.sh`. Components and sizing derived from `ARCHITECTURE.md` §Deployment Architecture.
 - [x] ~~Should `dataspoke-example` Kafka producers/consumers be added to simulate streaming data into DataHub via Kafka MCE topics?~~ **Resolved**: Added `example-kafka` (KRaft mode, `apache/kafka:3.9.0`) to `dummy-data1` with an `example_topic`. This provides a standalone Kafka instance for testing Kafka-based ingestion.
 - [ ] Should MAE/MCE consumer memory limits be further reduced (e.g., to 384Mi) to free more headroom? The upstream defaults of 1536Mi are sized for production throughput; monitoring actual dev usage would inform whether 512Mi is still too generous.
 

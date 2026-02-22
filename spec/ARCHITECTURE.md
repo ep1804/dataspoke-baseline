@@ -455,25 +455,51 @@ Replica counts, resource requests/limits, and PV sizes are configurable via Helm
 
 ### Configuration
 
+All runtime configuration is driven by **environment variables** with the `DATASPOKE_` prefix. In local development, variables are defined in `dev_env/.env` (gitignored). In production, they are injected via Kubernetes Secrets or a secrets manager.
+
+**Naming convention**:
+
+| Prefix | Scope |
+|--------|-------|
+| `DATASPOKE_` | Shared across all environments (dev, staging, production) |
+| `DATASPOKE_DEV_` | Local development only — not used in production configs |
+| `KUBE` in name | Kubernetes resource or setting |
+
+**Key variable groups**:
+
+| Group | Variables | Purpose |
+|-------|-----------|---------|
+| Kubernetes | `DATASPOKE_KUBE_CLUSTER`, `DATASPOKE_KUBE_DATAHUB_NAMESPACE`, `DATASPOKE_KUBE_DATASPOKE_NAMESPACE` | Cluster context and namespace targeting |
+| LLM API | `DATASPOKE_LLM_PROVIDER`, `DATASPOKE_LLM_API_KEY`, `DATASPOKE_LLM_MODEL` | LLM integration (e.g. Gemini, OpenAI, Anthropic) for ontology, doc generation, semantic analysis |
+| DataHub connection | `DATASPOKE_DATAHUB_GMS_URL`, `DATASPOKE_DATAHUB_KAFKA_BROKERS` | GMS endpoint for SDK read/write, Kafka brokers for MCE/MAE events |
+| PostgreSQL | `DATASPOKE_POSTGRES_USER`, `DATASPOKE_POSTGRES_PASSWORD`, `DATASPOKE_POSTGRES_DB` | Operational DB for ingestion configs, quality results, health scores, ontology graph |
+| Redis | `DATASPOKE_REDIS_PASSWORD` | Cache for validation results, API responses, rate limiting |
+| Qdrant | `DATASPOKE_QDRANT_API_KEY` | Vector DB authentication (optional in dev) |
+| Temporal | `DATASPOKE_TEMPORAL_NAMESPACE` | Workflow orchestration namespace |
+
+For production, secrets (`DATASPOKE_LLM_API_KEY`, `DATASPOKE_POSTGRES_PASSWORD`, `DATASPOKE_REDIS_PASSWORD`, etc.) are stored as Kubernetes Secrets and referenced by deployments. Example production config:
+
 ```yaml
-# config/production.yaml
+# config/production.yaml (non-secret overrides)
 datahub:
   gms_url: "https://datahub.company.com"
   kafka_brokers: "datahub-kafka-1:9092,datahub-kafka-2:9092"
 
 llm:
-  provider: "openai"       # or anthropic, azure, etc.
-  model: "gpt-4o"
-  api_key_secret: "llm-api-key"   # K8s secret reference
+  provider: "gemini"          # or openai, anthropic, azure
+  model: "gemini-2.0-flash"
+  api_key_secret: "dataspoke-llm-secret"   # K8s secret reference
 ```
+
+For the full variable listing with defaults, see [`spec/feature/DEV_ENV.md` §Configuration](feature/DEV_ENV.md#configuration).
 
 ### Local Development
 
-For dev/CI, DataHub is provisioned locally via `dev_env/`:
+For dev/CI, DataHub and DataSpoke infrastructure are provisioned locally via `dev_env/`:
 ```bash
-cd dev_env && ./install.sh    # Install DataHub + dependencies (5–10 min first run)
+cd dev_env && ./install.sh    # Install DataHub + DataSpoke stack + examples (5–10 min first run)
 cd dev_env && ./uninstall.sh  # Tear down
-# Settings: dev_env/.env (cluster name, namespaces, chart versions)
+# Settings: dev_env/.env (cluster, namespaces, credentials, LLM API keys, chart versions)
 ```
 
 The bundled dev environment is **NOT** for production.
@@ -485,20 +511,20 @@ The bundled dev environment is **NOT** for production.
 ```
 dataspoke-baseline/
 ├── api/                # Standalone OpenAPI 3.0 specs (API-first)
+├── dev_env/            # Local Kubernetes dev environment
+├── helm-charts/        # Kubernetes deployment manifests
+├── spec/               # Architecture and feature specifications
+│   ├── feature/        # Cross-cutting feature specs
+│   ├── feature/spoke/  # User-group-specific feature specs (DE/DA/DG)
+│   └── impl/           # Chronological implementation plans
 ├── src/
 │   ├── frontend/       # Next.js (pages per user group: de, da, dg)
 │   ├── api/            # FastAPI (routers per user group, schemas, middleware)
 │   ├── backend/        # Feature service implementations
 │   ├── workflows/      # Temporal workflow definitions
 │   └── shared/         # DataHub client, shared models, LLM integration
-├── helm-charts/        # Kubernetes deployment manifests
-├── spec/               # Architecture and feature specifications
-│   ├── feature/        # Cross-cutting feature specs
-│   ├── feature/spoke/  # User-group-specific feature specs (DE/DA/DG)
-│   └── impl/           # Chronological implementation plans
-├── dev_env/            # Local Kubernetes dev environment
-├── ref/                # External source for AI reference (git-ignored)
 ├── tests/              # Unit, integration, E2E test suites
+├── ref/                # External source for AI reference (git-ignored)
 ├── migrations/         # Alembic database migrations
 └── config/             # Environment-specific configuration
 ```
