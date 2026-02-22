@@ -1,6 +1,6 @@
 # DataSpoke Baseline: AI Coding Scaffold
 
-> **Document Status**: Specification v0.3 (updated 2026-02-22)
+> **Document Status**: Specification v0.4 (updated 2026-02-23)
 > This document covers Goal 2 of the DataSpoke Baseline project: providing a ready-to-use scaffold so that an organization-specific dedicated data catalog (a "Spoke") can be built with AI in a short time.
 > Aligned with MANIFESTO v2 (user-group-based feature taxonomy).
 
@@ -35,7 +35,7 @@ This document covers **Goal 2**. The scaffold is the set of Claude Code configur
 The scaffold supports two categories of workflows (from MANIFESTO §4):
 
 - **Development Environment Setup** — GitHub clone, reference data setup, and local Kubernetes cluster-based dev environment provisioning
-- **Development Planning** — Feature spec authoring per user group (DE/DA/DG) under `spec/feature/`, and chronological decision plans/logs under `spec/impl/` with AI coding approach suggestions
+- **Development Planning** — Guided spec authoring via `/dataspoke-plan-write`: scope selection → iterative Q&A → writing plan review → document writing (delegated to `plan-doc` conventions) → AI scaffold recommendations. Covers all spec tiers: architectural guidelines in `spec/`, common features in `spec/feature/`, user-group-specific features in `spec/feature/spoke/` (DE/DA/DG), and implementation plans in `spec/impl/`
 
 ---
 
@@ -51,7 +51,8 @@ The scaffold supports two categories of workflows (from MANIFESTO §4):
 ├── commands/                   # User-invoked multi-step workflows
 │   ├── dataspoke-dev-env-install.md
 │   ├── dataspoke-dev-env-uninstall.md
-│   └── dataspoke-ref-setup-all.md
+│   ├── dataspoke-ref-setup-all.md
+│   └── dataspoke-plan-write.md
 ├── agents/                     # Subagent system prompts
 │   ├── api-spec.md             # OpenAPI spec author
 │   ├── backend.md              # FastAPI/Python implementer
@@ -86,11 +87,14 @@ Skills are prompt extensions that give the agent specialized context or workflow
 
 Commands are user-invoked multi-step workflows — scripted sequences of agent actions that would otherwise require many manual steps. They live in `.claude/commands/`.
 
+**`dataspoke-plan-write` is the primary entry point for all spec authoring.** It orchestrates the full workflow (scope selection, requirements gathering, plan review, writing, scaffold recommendations) while delegating the actual writing to `plan-doc` skill conventions. Power users who already know the target file and content can use `/plan-doc <topic>` directly.
+
 | Command | Invocation | Purpose |
 |---------|-----------|---------|
 | `dataspoke-dev-env-install` | `/dataspoke-dev-env-install` | End-to-end dev environment setup: configure `dev_env/.env`, run preflight checks, execute `install.sh`, monitor pod readiness, report access URLs |
 | `dataspoke-dev-env-uninstall` | `/dataspoke-dev-env-uninstall` | Controlled teardown: show current cluster state, confirm with user, run `uninstall.sh`, clean up orphaned PVs |
 | `dataspoke-ref-setup-all` | `/dataspoke-ref-setup-all` | Download all AI reference materials: run `ref/setup.sh` in background and monitor until complete. Provides DataHub v1.4.0 source for the `datahub-api` skill |
+| `dataspoke-plan-write` | `/dataspoke-plan-write` | Guided spec authoring: select scope (architectural / common feature / spoke feature / impl plan), gather requirements through iterative Q&A, review writing plan, write document using plan-doc conventions, recommend AI scaffold updates |
 
 ### Subagents
 
@@ -125,6 +129,8 @@ This allows the agent to freely inspect the local cluster state while requiring 
 
 The scaffold itself is **fully operational**. All skills, commands, subagents, and permission rules are in place and functional.
 
+### Scaffold components
+
 | Component | Status |
 |-----------|--------|
 | `.claude/` scaffold (skills, commands, agents, settings) | Complete |
@@ -135,6 +141,25 @@ The scaffold itself is **fully operational**. All skills, commands, subagents, a
 | `src/` application source code | Not yet created |
 | `helm-charts/` deployment packaging | Not yet created |
 | `.claude/agent-memory/` accumulated subagent knowledge | Not yet populated (no implementation sessions have run) |
+
+### Spec inventory
+
+Documents authored so far (use `/dataspoke-plan-write` to add more):
+
+| Tier | Document | Description |
+|------|----------|-------------|
+| Top-level | `spec/MANIFESTO_en.md`, `spec/MANIFESTO_kr.md` | Product identity, user-group taxonomy (DE/DA/DG). Highest authority |
+| Top-level | `spec/ARCHITECTURE.md` | System-wide architecture, components, tech stack, feature mapping (UC1–UC8) |
+| Top-level | `spec/AI_SCAFFOLD.md` | This document — Claude Code scaffold conventions |
+| Top-level | `spec/USE_CASE_en.md`, `spec/USE_CASE_kr.md` | Conceptual scenarios by user group (UC1–UC8) |
+| Top-level | `spec/DATAHUB_INTEGRATION.md` | DataHub SDK patterns, aspect catalog, error handling |
+| Top-level | `spec/API_DESIGN_PRINCIPLE_en.md`, `spec/API_DESIGN_PRINCIPLE_kr.md` | REST API conventions |
+| Common feature | `spec/feature/API.md` | API layer design and shared infrastructure |
+| Common feature | `spec/feature/DEV_ENV.md` | Local Kubernetes dev environment specification |
+| Spoke feature | *(none yet)* | User-group-specific feature specs — next authoring target |
+| Impl plan | `spec/impl/20260220_datahub_api_skill.md` | DataHub API skill design and implementation |
+
+**Next steps**: Author user-group-specific feature specs in `spec/feature/spoke/` using `/dataspoke-plan-write` (scope 3). The MANIFESTO defines the following features awaiting specs: Deep Technical Spec Ingestion (DE), Online Data Validator (DE/DA), Automated Documentation Suggestions (DE), Natural Language Search (DA), Text-to-SQL Optimized Metadata (DA), Enterprise Metrics Time-Series Monitoring (DG), Multi-Perspective Data Overview (DG).
 
 The project is in the **specification and dev-environment phase**. The scaffold is ready for an organization to fork and begin AI-assisted implementation of their custom Spoke.
 
@@ -164,20 +189,25 @@ Fork dataspoke-baseline
 ### Recommended sequence
 
 1. **Revise the manifesto** — redefine user groups (DE/DA/DG or your own), feature scope, and naming for your org
-2. **Update `ARCHITECTURE.md`** — adjust tech stack, system components, and integration points
-3. **Write feature specs** — define user-group-specific specs in `spec/feature/spoke/` and common specs in `spec/feature/`
-4. **Run `/dataspoke-dev-env-install`** — bring up the local DataHub environment
-5. **Use `api-spec` subagent** — design user-group API contracts (`/api/v1/spoke/[group]/...`) before writing backend code
-6. **Use `backend` subagent** — implement feature services iteratively, leveraging project memory
-7. **Use `frontend` subagent** — build the portal-style UI with user-group entry points
-8. **Use `k8s-helm` subagent** — package and deploy to your target environment
+2. **Run `/dataspoke-plan-write`** (scope 1: architectural) — update `ARCHITECTURE.md` with adjusted tech stack, system components, and integration points
+3. **Run `/dataspoke-plan-write`** (scope 2: common feature) — define cross-cutting feature specs in `spec/feature/` (e.g., API layer, shared services)
+4. **Run `/dataspoke-plan-write`** (scope 3: spoke feature) — define user-group-specific specs in `spec/feature/spoke/` for each DE/DA/DG feature
+5. **Run `/dataspoke-dev-env-install`** — bring up the local DataHub environment
+6. **Run `/dataspoke-plan-write`** (scope 4: impl plan) — create implementation plans in `spec/impl/` with agent team setup and subagent sequencing
+7. **Use `api-spec` subagent** — design user-group API contracts (`/api/v1/spoke/[group]/...`) per the feature specs
+8. **Use `backend` subagent** — implement feature services iteratively, leveraging project memory
+9. **Use `frontend` subagent** — build the portal-style UI with user-group entry points
+10. **Use `k8s-helm` subagent** — package and deploy to your target environment
+
+Steps 2–4 and 6 use `/dataspoke-plan-write` to ensure every spec follows MANIFESTO conventions, uses the correct template, and includes cross-references. The command's Step 7 (AI scaffold recommendations) also identifies when new subagents, skills, or permissions are needed before implementation begins.
 
 ### What the scaffold saves
 
 | Without scaffold | With scaffold |
 |-----------------|--------------|
 | Agent must learn project layout from scratch each session | `CLAUDE.md` + subagent project memory provides immediate context |
-| No standard for spec documents → inconsistent output | `plan-doc` skill enforces spec hierarchy and format |
+| Spec authoring requires knowing the hierarchy, templates, and naming rules upfront | `/dataspoke-plan-write` guides the user through scope → Q&A → plan review → writing → scaffold recommendations |
+| No standard for spec documents → inconsistent output | `plan-doc` skill (invoked by `dataspoke-plan-write`) enforces spec hierarchy and format |
 | Manual cluster setup and teardown | `dataspoke-dev-env-install/uninstall` commands handle it end-to-end |
 | Risk of agent running destructive commands | `settings.json` permission rules block them |
 | API and backend developed in parallel without contract | `api-spec` subagent establishes the contract first |

@@ -115,10 +115,13 @@ spec/
 - `spec/USE_CASE_en.md` / `spec/USE_CASE_kr.md` — conceptual scenarios organized by user group (UC1–UC8, vision/ideation)
 - `spec/DATAHUB_INTEGRATION.md` — DataHub SDK patterns (read/write/event), aspect catalog, GraphQL usage, error handling conventions. **Reference this when implementing any DataHub interaction.**
 - `spec/API_DESIGN_PRINCIPLE_en.md` / `spec/API_DESIGN_PRINCIPLE_kr.md` — REST API conventions (URI structure, request/response format, content/metadata separation, meta-classifiers). **Reference this when designing any API.**
-- `spec/feature/` — specs for common/cross-cutting features (e.g. API design, dev env, shared infrastructure)
-- `spec/feature/spoke/` — specs for user-group-specific features (DE: Ingestion, Validator, Doc Suggestions; DA: NL Search, Text-to-SQL Metadata; DG: Metrics Dashboard, Multi-Perspective Overview)
-- `spec/impl/` — chronological implementation plans/logs (also used for minor changes)
+- `spec/feature/API.md` — API layer design and shared infrastructure
+- `spec/feature/DEV_ENV.md` — local Kubernetes dev environment specification
+- `spec/feature/spoke/` — user-group-specific feature specs (none yet; awaiting: Ingestion, Validator, Doc Suggestions for DE; NL Search, Text-to-SQL Metadata for DA; Metrics Dashboard, Multi-Perspective Overview for DG)
+- `spec/impl/20260220_datahub_api_skill.md` — DataHub API skill design and implementation
 - `dev_env/README.md` — local Kubernetes setup details
+
+Use `/dataspoke-plan-write` to author new specs. It guides scope selection, gathers requirements through Q&A, reviews a writing plan, writes the document (via `plan-doc` conventions), and recommends AI scaffold updates.
 
 c.f. When writing Korean documents, use the plain style (-다/-한다) instead of the polite honorific style (-입니다/-합니다).
 
@@ -138,7 +141,7 @@ Skills live in `.claude/skills/`. Claude loads them automatically when the conte
 |-------|-----------|---------|
 | `kubectl` | `/kubectl <operation>` | Run kubectl/helm operations against the local cluster; reads `dev_env/.env` for context and namespaces. User-invoked only. |
 | `monitor-k8s` | `/monitor-k8s [focus]` | Full cluster health report (pods, events, Helm releases). Runs in a forked subagent. |
-| `plan-doc` | `/plan-doc <topic>` | Write spec documents routed to the correct tier: `spec/feature/` for common features, `spec/feature/spoke/` for user-group-specific features (DE/DA/DG), `spec/impl/` for chronological decision plans/logs for implementation. |
+| `plan-doc` | `/plan-doc <topic>` | Writing engine for spec documents: routes to `spec/feature/`, `spec/feature/spoke/`, or `spec/impl/` with template and style conventions. Used directly for quick writes; called internally by `dataspoke-plan-write` for guided authoring. |
 | `datahub-api` | `/datahub-api <task>` | Answer DataHub data model questions (Q&A mode) or write/test Python code against the local DataHub instance (Code Writer mode). Auto-triggered on DataHub API tasks. |
 
 ### Commands — user-invoked workflows
@@ -150,6 +153,7 @@ Commands live in `.claude/commands/`. Invoke them explicitly with `/command-name
 | `dataspoke-dev-env-install` | `/dataspoke-dev-env-install` | End-to-end dev environment setup: configure `.env`, preflight checks, run `install.sh`, monitor progress, report access details. |
 | `dataspoke-dev-env-uninstall` | `/dataspoke-dev-env-uninstall` | Tear down the dev environment: show current state, confirm with user, run `uninstall.sh`, clean up orphaned PVs. |
 | `dataspoke-ref-setup-all` | `/dataspoke-ref-setup-all` | Download all AI reference materials: run `ref/setup.sh` in background and monitor until complete. |
+| `dataspoke-plan-write` | `/dataspoke-plan-write` | Guided spec authoring: scope selection → iterative Q&A → writing plan review → document writing (via plan-doc conventions) → AI scaffold recommendations. |
 
 ### Subagents — Claude delegates automatically based on task context
 
