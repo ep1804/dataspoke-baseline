@@ -548,97 +548,210 @@ eBookNow (인수):
 
 #### DataSpoke와 함께
 
-**1단계: 시맨틱 클러스터링**
+**1단계: LLM 기반 시맨틱 클러스터링**
+
+DataSpoke는 외부 LLM API를 사용하여 700개 데이터셋 전체에 대한 심층 시맨틱 분석을 수행한다. 단순 임베딩 코사인 유사도에 의존하지 않고, LLM이 스키마 메타데이터, 컬럼명, 설명, 샘플 값을 종합적으로 추론하여 표면적 유사도 지표로는 발견할 수 없는 개념적 중복을 식별한다.
+
+```python
+# LLM 기반 클러스터링 간략 예시 (LangChain 사용)
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import LLMChain
+from langchain.prompts import ChatPromptTemplate
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+# 1a단계: LLM이 각 데이터셋을 비즈니스 개념 카테고리로 분류
+classify_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a data catalog analyst. Given a table's schema and metadata, "
+               "classify it into one or more business concept categories."),
+    ("human", "Table: {table_name}\nColumns: {columns}\nDescription: {description}\n"
+              "Sample values: {samples}\n\nClassify into business concepts.")
+])
+classify_chain = LLMChain(llm=llm, prompt=classify_prompt)
+
+# 1b단계: 동일 개념 카테고리 내 테이블에 대해 LLM이 쌍별 분석 수행
+compare_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a data governance expert. Compare two tables that appear to "
+               "represent the same business concept. Identify overlaps, key differences, "
+               "and recommend merge/keep/deprecate."),
+    ("human", "Table A: {table_a_schema}\nTable B: {table_b_schema}\n"
+              "Lineage overlap: {shared_consumers}\nSample record overlap: {overlap_pct}")
+])
+compare_chain = LLMChain(llm=llm, prompt=compare_prompt)
+```
 
 ```
-DataSpoke Doc Suggestions — 시맨틱 클러스터링:
+DataSpoke Doc Suggestions — LLM 기반 시맨틱 클러스터링:
 
-분석 대상: 700 데이터셋
+분석 대상: 700 데이터셋 (스키마 + 설명 + 샘플 값을 LLM에 전송)
 감지된 시맨틱 클러스터: 38
 충돌이 있는 클러스터: 9
 
 클러스터: 도서 / 상품 (Critical)
 동일 개념을 나타내는 6개 테이블 감지
 
-유사도 매트릭스 (임베딩 코사인 거리):
-  catalog.title_master   ←→ products.digital_catalog    0.93
-  catalog.editions       ←→ content.ebook_assets         0.90
-  inventory.book_stock   ←→ storefront.listing_items     0.86
+LLM 시맨틱 분석:
+  catalog.title_master   ←→ products.digital_catalog
+    LLM 판정: "양쪽 모두 도서/상품 엔티티를 나타낸다. title_master는 인쇄 중심
+               (ISBN 필수), digital_catalog는 디지털 전용 (product_id 기반).
+               author_id(FK) vs creator(자유 텍스트)가 핵심 구조적 차이."
+    신뢰도: 0.95
 
-근거:
-  - 6개 모두 타이틀 유사 필드 포함 (100% 의미 매칭)
-  - 6개 모두 가격 필드 포함 (95% 매칭)
+  catalog.editions       ←→ content.ebook_assets
+    LLM 판정: "동일 개념의 상호 보완적 뷰 — editions는 물리적 포맷 변형을 추적하고,
+               ebook_assets는 디지털 파일 포맷과 DRM을 추적한다."
+    신뢰도: 0.91
+
+  inventory.book_stock   ←→ storefront.listing_items
+    LLM 판정: "개념적 중복 낮음 — book_stock은 창고 재고,
+               listing_items는 마켓플레이스 가격 책정. 상품 참조만 공유."
+    신뢰도: 0.78
+
+근거 (LLM 보강):
+  - 6개 모두 타이틀 유사 필드 포함 (LLM 추론을 통한 100% 의미 매칭)
+  - 6개 모두 가격 필드 포함 (95% 매칭 — LLM이 통화 차이 감지)
   - 중복 다운스트림 리니지: 18개 공유 소비자
   - 샘플 레코드 중복 (추정): ISBN/타이틀 매칭 기준 72%
+  - LLM 인사이트: eBookNow의 "creator" 필드는 자유 텍스트이며 정규화된 FK가 아님 —
+    단순 컬럼명 매칭으로는 이 차이를 발견할 수 없었을 것
 ```
 
-**1b단계: 소스 코드 참조 분석**
+**1b단계: LLM 지원 소스 코드 참조 분석**
 
-DataSpoke가 eBookNow의 연결된 GitHub 저장소(`ebooknow/catalog-service`, `ebooknow/storefront-api`)를 스캔하여 클러스터링된 테이블을 참조하는 인라인 SQL, DBT 모델, 애플리케이션 코드를 탐색한다:
+DataSpoke가 eBookNow의 연결된 GitHub 저장소(`ebooknow/catalog-service`, `ebooknow/storefront-api`)를 스캔하여 클러스터링된 테이블을 참조하는 인라인 SQL, DBT 모델, 애플리케이션 코드를 탐색한다. LLM API가 코드 컨텍스트를 해석하여 정확한 컬럼 설명을 생성하고 애플리케이션 코드에 내재된 비즈니스 로직을 식별한다:
+
+```python
+# LLM이 소스 코드 참조에서 비즈니스 컨텍스트 추출
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import LLMChain
+from langchain.prompts import ChatPromptTemplate
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+code_analysis_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a code analyst. Given source code that references a database column, "
+               "generate a business-level column description. Include: purpose, constraints, "
+               "relationships to other tables, and any business logic applied to this column."),
+    ("human", "Column: {table}.{column}\nCode references:\n{code_snippets}\n"
+              "Existing schema context: {schema_context}")
+])
+code_chain = LLMChain(llm=llm, prompt=code_analysis_prompt)
+```
 
 ```
 소스 코드 참조 분석 — 도서 / 상품 클러스터:
 
 스캔된 저장소: 3 (catalog-service, storefront-api, data-pipelines)
 발견된 코드 참조: 147
+LLM 분석된 참조: 147 (LangChain을 통한 배치 처리)
 
 샘플 발견 — products.digital_catalog.creator:
   파일: catalog-service/src/models/product.py:42
   사용: creator = db.Column(String(255))  # Free-text author name
-  인사이트: "creator"는 자유 텍스트 (author_id와 같은 정규화된 FK가 아님)
-            → catalog.title_master.author_id와 차별화된 설명 제안
+  LLM 인사이트: "creator는 자유 텍스트 필드 (author_id와 같은 정규화된 FK가 아님).
+                 authors 테이블에 대한 검증 없음. 출판사가 입력하며, 쉼표로 구분된
+                 복수 저자를 포함할 수 있음."
+  → catalog.title_master.author_id와 차별화된 설명 제안
 
-자동 생성 컬럼 설명 (코드 컨텍스트 기반):
+LLM 생성 컬럼 설명 (코드 + 스키마 컨텍스트 기반):
   products.digital_catalog.creator    → "출판사가 입력한 자유 텍스트 저자/크리에이터명.
                                          catalog.title_master.author_id와 달리 authors
-                                         테이블에 대한 외래키가 아님."
+                                         테이블에 대한 외래키가 아님. 복수 이름 포함 가능
+                                         (쉼표 구분). 정규화 미적용."
   products.digital_catalog.price_usd  → "출판사가 설정한 USD 소매 가격.
                                          storefront-api/pricing 엔드포인트를 통해 업데이트.
-                                         통화 변환 없음 (USD 전용)."
+                                         통화 변환 없음 (USD 전용). > 0 검증은
+                                         체크아웃 플로우에서 수행 (storefront-api/cart.py:88)."
   content.ebook_assets.file_format    → "디지털 파일 포맷 enum: EPUB, PDF, MOBI.
-                                         catalog-service 업로드 핸들러에서 검증."
+                                         catalog-service 업로드 핸들러에서 검증.
+                                         MOBI는 2023년부터 폐기 — LLM이 upload_handler.py:156에서
+                                         경고 로그 감지."
 ```
 
-**1c단계: 유사 테이블 차별화 보고서**
+**1c단계: LLM 기반 유사 테이블 차별화 보고서**
 
-DataSpoke가 도서/상품 클러스터 내 테이블에 대한 명시적 차별화 보고서를 생성하여, 거버넌스 팀이 어떤 테이블을 병합, 유지, 폐기할지 이해하도록 돕는다:
+DataSpoke가 각 테이블 쌍의 전체 스키마, 샘플 데이터, 리니지, 코드 참조를 LLM에 전송하고, LLM이 병합/유지/폐기 권장사항이 포함된 구조화된 차별화 보고서를 생성한다:
+
+```python
+# LLM이 각 테이블 쌍에 대한 차별화 보고서 생성
+diff_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a data governance advisor. Given two similar tables, produce a "
+               "differentiation report. For each pair, state: key structural difference, "
+               "overlap percentage rationale, and a clear recommendation (MERGE / KEEP / DEPRECATE)."),
+    ("human", "Table A: {table_a}\nSchema: {schema_a}\nDescription: {desc_a}\n"
+              "Table B: {table_b}\nSchema: {schema_b}\nDescription: {desc_b}\n"
+              "Shared consumers: {shared_consumers}\nRecord overlap: {overlap_pct}%")
+])
+diff_chain = LLMChain(llm=llm, prompt=diff_prompt)
+```
 
 ```
-유사 테이블 차별화 보고서 — 도서 / 상품 클러스터:
+LLM 생성 차별화 보고서 — 도서 / 상품 클러스터:
 
 ┌─────────────────────────┬──────────────────────────┬────────────┐
-│ 테이블 쌍               │ 핵심 차이점              │ 중복률     │
+│ 테이블 쌍                 │ 핵심 차이점                 │ 중복률      │
 ├─────────────────────────┼──────────────────────────┼────────────┤
-│ catalog.title_master    │ 인쇄 중심 SSOT           │            │
+│ catalog.title_master    │ 인쇄 중심 SSOT            │            │
 │ vs                      │ ISBN 필수 (NOT NULL)     │ 72%        │
-│ products.digital_catalog│ 디지털 전용, ISBN 불필요  │            │
+│ products.digital_catalog│ 디지털 전용, ISBN 불필요    │            │
 │                         │ (30%가 ISBN 없음)        │            │
+│ LLM 권장: MERGE — catalog.product_master 생성                   │
+│ LLM 근거: "핵심 엔티티는 동일 (도서 상품). ISBN 선택성이 유일한           │
+│   구조적 장벽. 대체키 product_id로 해결. creator→author_id            │
+│   매핑에 정규화 파이프라인 필요."                                      │
 ├─────────────────────────┼──────────────────────────┼────────────┤
-│ catalog.editions        │ 에디션 수준 상세          │            │
+│ catalog.editions        │ 에디션 수준 상세             │            │
 │ vs                      │ (format, pub_date)       │ 65%        │
-│ content.ebook_assets    │ 디지털 자산 저장소        │            │
+│ content.ebook_assets    │ 디지털 자산 저장소            │            │
 │                         │ (file_format, DRM)       │            │
+│ LLM 권장: 양쪽 유지 (상호 보완적 뷰)                                   │
+│ LLM 근거: "editions는 출판 변형을 추적하고, assets는 파일 전달을          │
+│   추적한다. 병합 시 물리적/디지털 관심사가 혼합된다.                        │
+│   edition_id FK로 연결하는 것이 적절."                               │
 ├─────────────────────────┼──────────────────────────┼────────────┤
-│ inventory.book_stock    │ 물리적 창고 수량          │            │
+│ inventory.book_stock    │ 물리적 창고 수량             │            │
 │ vs                      │ (warehouse_id, qty)      │ 41%        │
-│ storefront.listing_items│ 마켓플레이스 리스팅       │            │
+│ storefront.listing_items│ 마켓플레이스 리스팅           │            │
 │                         │ (seller_price, listing)  │            │
+│ LLM 권장: book_stock 유지, listing_items 폐기                      │
+│ LLM 근거: "listing_items는 재고와 가격 관심사를 혼합한다.                │
+│   가격 정보를 정규 가격 테이블로 이전하고                                 │
+│   listing_items를 폐기하는 것이 적절."                               │
 └─────────────────────────┴──────────────────────────┴────────────┘
-
-권장사항:
-  catalog.title_master + products.digital_catalog  → catalog.product_master로 병합
-  catalog.editions + content.ebook_assets          → 양쪽 유지 (상호 보완적 뷰)
-  inventory.book_stock                             → 유지 (물리적 범위 한정)
-  storefront.listing_items                         → 폐기 (정규 테이블로 마이그레이션)
 ```
 
-**2단계: 온톨로지 제안**
+**2단계: LLM 생성 온톨로지 제안**
+
+LLM이 이전 분석(클러스터, 코드 참조, 차별화 보고서)을 종합하여 병합 스키마, 테이블 역할 할당, 일관성 규칙이 포함된 포괄적 온톨로지 제안을 생성한다:
+
+```python
+# LLM이 축적된 컨텍스트에서 전체 온톨로지 제안 생성
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import LLMChain
+from langchain.prompts import ChatPromptTemplate
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+ontology_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are an enterprise data architect. Given a set of semantically similar "
+               "tables with their schemas, code references, differentiation analysis, and "
+               "lineage, propose a canonical ontology. Include: canonical entity schema, "
+               "table role assignments (keep/deprecate/merge), and consistency rules."),
+    ("human", "Cluster: {cluster_name}\n"
+              "Tables: {tables_with_schemas}\n"
+              "Differentiation report: {diff_report}\n"
+              "Code analysis: {code_analysis}\n"
+              "Downstream consumers: {consumers}")
+])
+ontology_chain = LLMChain(llm=llm, prompt=ontology_prompt)
+```
 
 ```
-제안된 정규 엔티티: catalog.product_master
+LLM 제안 정규 엔티티: catalog.product_master
 
-필드 (병합 스키마):
-  - product_id          (대체키, 신규)
+필드 (병합 스키마 — LLM 설계):
+  - product_id          (대체키, 신규 — LLM: "ISBN 선택성 문제를 해결")
   - isbn                (nullable — 디지털 전용 타이틀은 ISBN 없음)
   - title               (정규화)
   - format              (enum: print | ebook | audiobook)
@@ -648,7 +761,7 @@ DataSpoke가 도서/상품 클러스터 내 테이블에 대한 명시적 차별
   - list_price          (USD로 정규화)
   - publication_date
 
-제안된 테이블 역할:
+LLM 제안 테이블 역할:
   catalog.product_master        → 신규 정규 SSOT
   catalog.title_master          → 인쇄본 뷰 (유지, 정규 테이블에 별칭)
   catalog.editions              → 에디션 상세 뷰 (유지)
@@ -657,16 +770,19 @@ DataSpoke가 도서/상품 클러스터 내 테이블에 대한 명시적 차별
   inventory.book_stock          → 재고 뷰 (유지)
   storefront.listing_items      → 폐기 → 정규 테이블로 마이그레이션
 
-일관성 규칙:
+LLM 생성 일관성 규칙:
   R1. 새 파이프라인은 반드시 catalog.product_master로 조인
   R2. title 정규화: TRIM + title-case
   R3. product_id는 할당 후 불변
   R4. 도서 기원 이벤트에 source_system 태그 필수
+  R5. creator→author_id 매핑은 정규화 파이프라인을 거쳐야 함 (LLM 추가)
 
 영향: 18개 파이프라인 업데이트 필요 | 난이도: 중간 (스키마 추가 방식)
+LLM 마이그레이션 계획: 폐기 대상 테이블별 단계별 SQL 마이그레이션 스크립트 자동 생성,
+  롤백 절차 및 데이터 검증 체크 포함.
 ```
 
-**3단계: 주간 일관성 검사** — DataSpoke가 규칙 위반을 스캔한다. 예시: 새 파이프라인이 `catalog.product_master` 대신 `products.digital_catalog`로 조인하여 인쇄 전용 타이틀의 60%가 추천에서 제외됨. 92% 신뢰도로 자동 수정 제안.
+**3단계: LLM 기반 주간 일관성 검사** — DataSpoke가 LLM을 사용하여 신규 및 수정된 파이프라인의 온톨로지 규칙 위반을 스캔한다. LLM이 SQL 조인 패턴, 컬럼 참조, 데이터 흐름을 분석하여 정규식 기반 규칙으로는 감지할 수 없는 의미적 위반을 탐지한다. 예시: 새 파이프라인이 `catalog.product_master` 대신 `products.digital_catalog`로 조인하여 인쇄 전용 타이틀의 60%가 추천에서 제외됨. LLM이 생성한 자동 수정 제안(92% 신뢰도)에 필요한 정확한 SQL 변경 사항 포함.
 
 #### DataHub 연동 포인트
 
@@ -712,18 +828,18 @@ emitter.emit_mcp(MetadataChangeProposalWrapper(
 ))
 ```
 
-> **핵심 포인트**: DataHub는 스키마 메타데이터와 폐기 마커를 저장한다. DataSpoke가 임베딩 기반 클러스터링, 온톨로지 제안 로직, 일관성 규칙 강제를 추가한다.
+> **핵심 포인트**: DataHub는 스키마 메타데이터와 폐기 마커를 저장한다. DataSpoke가 LLM API를 활용한 시맨틱 클러스터링, 온톨로지 제안 로직, 일관성 규칙 강제를 추가한다.
 
 #### DataSpoke 커스텀 구현
 
 | 컴포넌트 | 책임 | DataHub가 할 수 없는 이유 |
 |---------|------|------------------------|
-| **임베딩 기반 클러스터링** | 컬럼/설명 임베딩 생성, Qdrant를 통한 코사인 유사도 행렬 계산 | DataHub는 키워드 검색만 제공, 벡터 유사도 없음 |
-| **온톨로지 제안 엔진** | 병합 스키마와 테이블 역할 할당이 포함된 정규 엔티티 제안 | DataHub는 메타데이터를 저장하지만 스키마 병합 로직 없음 |
-| **일관성 규칙 엔진** | 온톨로지 규칙(R1–R4) 정의 및 주간 위반 스캔 강제 | DataHub에는 규칙 정의나 위반 스캔 없음 |
-| **소스 코드 분석기** | 연결된 저장소에서 테이블을 참조하는 SQL, DBT, 애플리케이션 코드 스캔; 컬럼 사용 컨텍스트 추출 | DataHub에는 소스 코드 스캔 기능 없음 |
-| **차별화 보고서 생성기** | 유사 테이블 쌍별 비교: 목적, 스키마 격차, 중복률, 병합/유지/폐기 권장 | DataHub는 개별 스키마를 저장하지만 비교나 조치 권장 불가 |
-| **자동 수정 제안기** | 신뢰도 점수가 포함된 SQL 조인 대체 제안 | DataHub에는 코드 수준 분석 기능 없음 |
+| **LLM 기반 시맨틱 클러스터링** | 스키마 + 설명 + 샘플 값을 LLM API에 전송하여 심층 개념 분석; 데이터셋을 비즈니스 개념 카테고리로 분류; 표면적 임베딩 유사도를 넘어서는 쌍별 의미 비교. LangChain `LLMChain`으로 구조화된 프롬프트 오케스트레이션. | DataHub는 키워드 검색만 제공, 의미 추론 없음 |
+| **LLM 온톨로지 제안 엔진** | LLM이 클러스터 분석, 코드 참조, 차별화 보고서를 종합하여 병합 스키마, 테이블 역할, 일관성 규칙이 포함된 정규 엔티티 제안. LangChain `ChatPromptTemplate`으로 다단계 추론. | DataHub는 메타데이터를 저장하지만 스키마 병합이나 추론 로직 없음 |
+| **LLM 일관성 규칙 엔진** | LLM이 신규/수정 파이프라인의 SQL 패턴을 온톨로지 규칙(R1–R5) 대비 분석; 정규식 규칙이 놓치는 의미적 위반 탐지; 자동 수정 SQL 생성 | DataHub에는 규칙 정의, 위반 스캔, 코드 분석 없음 |
+| **LLM 소스 코드 분석기** | 연결된 저장소 스캔; 코드 스니펫 + 스키마 컨텍스트를 LLM에 전송하여 비즈니스 수준 컬럼 설명 생성. 대규모 코드베이스에 LangChain `RecursiveCharacterTextSplitter` 사용. | DataHub에는 소스 코드 스캔이나 해석 기능 없음 |
+| **LLM 차별화 보고서 생성기** | LLM이 테이블 쌍을 전체적으로 비교(스키마, 리니지, 코드 사용, 샘플 데이터)하고 근거가 포함된 구조화된 병합/유지/폐기 권장 생성 | DataHub는 개별 스키마를 저장하지만 비교나 조치 추론 불가 |
+| **온톨로지/분류 체계 빌더** *(UC8과 공유)* | 메타데이터에서 비즈니스 개념 분류 체계를 구축·유지하는 재사용 가능한 LLM 기반 서비스. 개념 카테고리, 계층적 관계, 데이터셋-개념 매핑을 Doc Suggestions(UC4)와 다관점 오버뷰(UC8) 양쪽에 제공. 아래 공통 컴포넌트 참조. | DataHub에는 분류 체계 구축이나 LLM 연동 없음 |
 
 #### 결과
 
@@ -1199,26 +1315,75 @@ UC6의 메타데이터 건강도 이니셔티브가 전사 점수를 59에서 77
 
 **뷰 1: 분류 체계/온톨로지 그래프**
 
+그래프를 렌더링하기 전에, DataSpoke는 공유 **온톨로지/분류 체계 빌더**(UC4에서 사용하는 것과 동일한 LLM 기반 서비스)를 사용하여 모든 데이터셋을 온톨로지 카테고리에 매핑한다. LLM이 각 테이블의 스키마, 설명, 컬럼명, 샘플 값, 리니지 컨텍스트를 분석하여 비즈니스 개념 카테고리를 할당한다 — 이 의미적 그룹핑이 그래프 레이아웃을 구동한다.
+
+```python
+# LLM 기반 온톨로지 카테고리 매핑 (공유 온톨로지/분류 체계 빌더 사용)
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import LLMChain
+from langchain.prompts import ChatPromptTemplate
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+# 1단계: LLM이 테이블 메타데이터를 사용하여 각 데이터셋을 온톨로지 카테고리에 매핑
+taxonomy_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are an enterprise data taxonomist. Given a dataset's schema metadata "
+               "(table name, columns, types, description, tags, lineage), assign it to one "
+               "or more business ontology categories. Return a structured classification with "
+               "primary category, secondary categories, and confidence score.\n"
+               "Standard categories: Product/Catalog, Customer, Order/Transaction, "
+               "Shipping/Logistics, Marketing, Finance, Review/Rating, Recommendation, "
+               "Inventory, Publishing, Analytics/Report, Infrastructure."),
+    ("human", "Table: {table_name}\nColumns: {columns}\nDescription: {description}\n"
+              "Tags: {tags}\nUpstream: {upstream}\nDownstream: {downstream}")
+])
+taxonomy_chain = LLMChain(llm=llm, prompt=taxonomy_prompt)
+
+# 2단계: LLM이 그래프 엣지를 위한 카테고리 간 관계 정제
+relationship_prompt = ChatPromptTemplate.from_messages([
+    ("system", "Given two ontology categories and the datasets within each, determine "
+               "the semantic relationship type: dependency, derivation, complementary, "
+               "or overlap. This drives edge rendering in the taxonomy graph."),
+    ("human", "Category A: {cat_a} ({datasets_a})\nCategory B: {cat_b} ({datasets_b})\n"
+              "Shared lineage edges: {shared_edges}")
+])
+relationship_chain = LLMChain(llm=llm, prompt=relationship_prompt)
+```
+
 ```
 DataSpoke 다관점 오버뷰 — 분류 체계 그래프:
 
-노드: 700 데이터셋
-엣지: 1,842 (1,204 리니지 + 638 스키마 유사도)
-자동 감지 도메인: 12개 비즈니스 클러스터
+사전 처리: LLM 온톨로지 카테고리 매핑
+  700개 데이터셋을 LLM API로 분석 (배치 처리)
+  할당된 온톨로지 카테고리: 주 12개, 부 34개
+  매핑 신뢰도: 평균 94% (설명이 있는 데이터셋)
+               평균 78% (설명이 없는 데이터셋 — LLM이 스키마에서 추론)
+
+  샘플 매핑:
+    catalog.title_master        → Product/Catalog (0.98)
+    orders.purchase_history     → Order/Transaction (0.97)
+    recommendations.book_features → Recommendation (0.92), Product/Catalog (0.71)
+    marketing.eu_email_campaigns → Marketing (0.96), Customer (0.68)
+
+노드: 700 데이터셋 (온톨로지 카테고리 + 건강도 점수로 색상 지정)
+엣지: 1,842 (1,204 리니지 + 638 LLM 추론 의미적 관계)
+자동 감지 도메인: 12개 비즈니스 클러스터 (LLM 할당 온톨로지 카테고리)
 
 시각화:
   노드 색상: 건강도 점수 (🔴 <50 | 🟡 50-70 | 🟢 >70)
   노드 크기: 사용량 (클수록 소비자 많음)
-  엣지 유형: 실선 = 리니지 | 점선 = 스키마 유사도
+  노드 그룹: LLM 할당 온톨로지 카테고리 (포스 다이렉티드 클러스터링)
+  엣지 유형: 실선 = 리니지 | 점선 = LLM 추론 의미적 관계
 
 핵심 발견 — 거버넌스 사각지대:
   클러스터: recommendations.* (12개 데이터셋)
+  LLM 카테고리: "Recommendation" — 높은 비즈니스 중요도 추론
   상태: 전부 빨간색 (건강도 점수 12–38)
   문제:
     - 문서화된 리니지 제로 (업스트림/다운스트림 기록 없음)
     - 높은 사용량: 클러스터 전체에 주당 45명의 고유 사용자
     - 12개 중 8개 테이블에 소유자 미할당
-    - 추론된 업스트림 (코드 분석 기반): catalog.title_master,
+    - LLM 추론 업스트림 (스키마 + 네이밍 분석 기반): catalog.title_master,
       reviews.user_ratings, orders.purchase_history
   리스크: 핵심 비즈니스 기능(도서 추천)이 완전히 미문서화되고
           소유자 없는 데이터 인프라에서 구동 중
@@ -1240,12 +1405,12 @@ DataSpoke 다관점 오버뷰 — 메달리온 분류:
 자동 분류 (리니지 깊이 + 네이밍 패턴 + 스키마 분석 기반):
 
 ┌──────────────┬────────┬──────────────────────────────────────────────┐
-│ 레이어       │ 수량   │ 특성                                        │
+│ 레이어       │ 수량   │ 특성                                             │
 ├──────────────┼────────┼──────────────────────────────────────────────┤
-│ 🥉 Bronze    │ 180    │ 원시 인제스천, 외부 소스, _raw 접미사         │
-│ 🥈 Silver    │ 120    │ 정제/조인, _cleaned/_enriched 접미사          │
-│ 🥇 Gold      │ 55     │ 비즈니스 준비 집계, reports.* 도메인          │
-│ ❓ 미분류     │ 345    │ 가용 메타데이터로 레이어 추론 불가             │
+│ 🥉 Bronze    │ 180    │ 원시 인제스천, 외부 소스, _raw 접미사               │
+│ 🥈 Silver    │ 120    │ 정제/조인, _cleaned/_enriched 접미사             │
+│ 🥇 Gold      │ 55     │ 비즈니스 준비 집계, reports.* 도메인               │
+│ ❓ 미분류     │ 345    │ 가용 메타데이터로 레이어 추론 불가                    │
 └──────────────┴────────┴──────────────────────────────────────────────┘
 
 격차 분석:
@@ -1315,14 +1480,15 @@ for dataset_urn in dataset_urns:
     properties = graph.get_aspect(dataset_urn, DatasetPropertiesClass)
 ```
 
-> **핵심 포인트**: DataHub는 데이터셋별 메타데이터(리니지, 스키마, 태그, 사용량)를 제공한다. DataSpoke가 이를 인터랙티브 그래프 시각화, 자동 분류, 사각지대 탐지로 집계한다.
+> **핵심 포인트**: DataHub는 데이터셋별 메타데이터(리니지, 스키마, 태그, 사용량)를 제공한다. DataSpoke가 LLM 기반 온톨로지 카테고리 매핑을 선행한 후, 인터랙티브 그래프 시각화, 자동 분류, 사각지대 탐지로 집계한다.
 
 #### DataSpoke 커스텀 구현
 
 | 컴포넌트 | 책임 | DataHub가 할 수 없는 이유 |
 |---------|------|------------------------|
-| **그래프 레이아웃 엔진** | 리니지 + 스키마 유사도 엣지에서 포스 다이렉티드 그래프 생성; 인터랙티브 줌/필터 | DataHub는 기본 리니지 뷰어가 있지만 유사도 엣지를 포함한 전체 자산 그래프 없음 |
-| **도메인 분류기** | 설명/스키마 임베딩을 통한 데이터셋 비즈니스 도메인 자동 분류 | DataHub는 수동 도메인 할당만 지원 |
+| **온톨로지/분류 체계 빌더** *(UC4와 공유)* | 그래프 렌더링 전 모든 데이터셋을 비즈니스 온톨로지 카테고리에 매핑하는 LLM 기반 서비스. LLM API로 스키마, 설명, 태그, 리니지를 분석하여 주/부 카테고리 할당. UC4의 시맨틱 클러스터링과 동일한 서비스 사용. 아래 공통 컴포넌트 참조. | DataHub에는 LLM 기반 분류 체계 구축 없음 |
+| **그래프 레이아웃 엔진** | 리니지 + LLM 추론 의미적 관계 엣지에서 포스 다이렉티드 그래프 생성; LLM 할당 온톨로지 카테고리로 노드 그룹핑; 인터랙티브 줌/필터 | DataHub는 기본 리니지 뷰어가 있지만 의미적 그룹핑을 포함한 전체 자산 그래프 없음 |
+| **LLM 도메인 분류기** | LLM이 스키마 + 설명 + 리니지를 분석하여 데이터셋의 비즈니스 도메인 자동 분류; 임베딩 전용 접근 방식을 LangChain을 통한 풍부한 의미 추론으로 대체 | DataHub는 수동 도메인 할당만 지원 |
 | **메달리온 레이어 탐지기** | 리니지 깊이, 네이밍 패턴, 변환 복잡도에서 Bronze/Silver/Gold 추론 | DataHub는 태그를 저장하지만 메달리온 분류를 위한 추론 로직 없음 |
 | **건강도 색상화기** | 복합 건강도 점수를 그래프 노드의 시각적 지표(색상, 크기, 투명도)로 매핑 | DataHub에는 시각적 건강도 오버레이 기능 없음 |
 | **사각지대 분석기** | 고아 데이터셋, 누락된 리니지, 막다른 Bronze 테이블, 소유자 없는 고사용량 클러스터 탐지 | DataHub는 원시 메타데이터를 제공하지만 데이터셋 간 이상 탐지 없음 |
@@ -1336,6 +1502,45 @@ for dataset_urn in dataset_urns:
 | 사각지대 탐지 | 임기응변, 암묵지 | 체계적, 자동화 |
 | 메달리온 분류 | 수동, 팀별 설문 | 자동 추론, 상시 업데이트 |
 | 구식 여부 | 즉시 구식 | 실시간, 자동 갱신 |
+
+---
+
+## 공통 컴포넌트: 공유 온톨로지/분류 체계 빌더
+
+UC4(Doc Suggestions)와 UC8(Multi-Perspective Overview)는 모두 데이터셋을 비즈니스 개념 카테고리에 매핑해야 한다 — UC4는 시맨틱 클러스터링과 온톨로지 통합을 위해, UC8은 그래프 노드 그룹핑과 도메인 분류를 위해. 이 로직을 중복하지 않고, DataSpoke는 재사용 가능한 백엔드 서비스로 **공유 온톨로지/분류 체계 빌더**를 제공한다.
+
+**아키텍처:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              온톨로지/분류 체계 빌더 서비스                        │
+│                                                             │
+│  입력: DataHub 메타데이터 (스키마, 설명, 태그,                      │
+│        리니지, 샘플 값) — 전체 데이터셋 대상                        │
+│                                                             │
+│  처리 (LangChain을 통한 LLM 기반):                              │
+│    1. 데이터셋 → 개념 분류 (데이터셋별 LLM 호출)                     │
+│    2. 개념 계층 구조 생성 (LLM 종합)                              │
+│    3. 개념 간 관계 추론 (LLM 쌍별 분석)                           │
+│    4. 신뢰도 점수 산정 및 휴먼 리뷰 큐                             │
+│                                                             │
+│  출력: PostgreSQL에 저장된 영속 온톨로지 그래프                     │
+│    - concept_categories (id, name, parent_id, description)  │
+│    - dataset_concept_map (dataset_urn, concept_id, score)   │
+│    - concept_relationships (concept_a, concept_b, type)     │
+│                                                             │
+│  소비자:                                                     │
+│    UC4: 시맨틱 클러스터링, 온톨로지 통합                           │
+│    UC8: 그래프 노드 그룹핑, 도메인 분류                            │
+│    향후: NL Search (UC5) 개념 인식 쿼리 확장                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**핵심 설계 포인트:**
+- **LLM API가 중심**: 모든 분류, 계층 추론, 관계 탐지 단계에서 LangChain을 통해 외부 LLM API를 사용한다. LLM은 스키마 구조, 네이밍 관례, 설명, 리니지를 종합적으로 추론한다 — 단순 임베딩 유사도가 아님.
+- **증분 업데이트**: 새 데이터셋이 인제스천(UC1)되거나 스키마가 변경되면, 빌더가 영향받는 데이터셋만 재분류하고 다운스트림 소비자(UC4, UC8)에 변경 사항을 전파한다.
+- **휴먼 인 더 루프**: 낮은 신뢰도 분류(< 0.7)는 거버넌스 팀 리뷰 큐에 추가된다. LLM이 근거를 제공하여 사람의 의사결정을 가속한다.
+- **버전 관리된 분류 체계**: 각 분류 체계 빌드는 버전이 지정된다. UC4의 온톨로지 제안은 특정 분류 체계 버전을 참조하여 재현성을 보장한다.
 
 ---
 
@@ -1358,3 +1563,4 @@ for dataset_urn in dataset_urns:
 - **컨텍스트 인식:** 모든 부서에 걸쳐 데이터 관계와 비즈니스 의미를 이해
 - **측정 가능한 영향:** 품질, 컴플라이언스, 효율성의 정량적 개선
 - **온톨로지 건강:** 인수와 유기적 성장을 통해서도 카탈로그의 의미적 일관성 유지
+- **LLM 네이티브:** UC4와 UC8 전반에서 시맨틱 분석, 온톨로지 구축, 코드 해석, 일관성 강제를 위해 외부 LLM API(LangChain 경유)를 광범위하게 활용

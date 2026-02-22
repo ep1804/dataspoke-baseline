@@ -548,63 +548,146 @@ Problems:
 
 #### With DataSpoke
 
-**Phase 1: Semantic Clustering**
+**Phase 1: LLM-Powered Semantic Clustering**
+
+DataSpoke uses an external LLM API to perform deep semantic analysis of all 700 datasets. Rather than relying solely on embedding cosine similarity, the LLM reasons over schema metadata, column names, descriptions, and sample values to identify conceptual overlaps that surface-level similarity metrics would miss.
+
+```python
+# Simplified illustration of LLM-driven clustering (via LangChain)
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import LLMChain
+from langchain.prompts import ChatPromptTemplate
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+# Step 1a: LLM classifies each dataset into business concept categories
+classify_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a data catalog analyst. Given a table's schema and metadata, "
+               "classify it into one or more business concept categories."),
+    ("human", "Table: {table_name}\nColumns: {columns}\nDescription: {description}\n"
+              "Sample values: {samples}\n\nClassify into business concepts.")
+])
+classify_chain = LLMChain(llm=llm, prompt=classify_prompt)
+
+# Step 1b: For tables in the same concept category, LLM performs pairwise analysis
+compare_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a data governance expert. Compare two tables that appear to "
+               "represent the same business concept. Identify overlaps, key differences, "
+               "and recommend merge/keep/deprecate."),
+    ("human", "Table A: {table_a_schema}\nTable B: {table_b_schema}\n"
+              "Lineage overlap: {shared_consumers}\nSample record overlap: {overlap_pct}")
+])
+compare_chain = LLMChain(llm=llm, prompt=compare_prompt)
+```
 
 ```
-DataSpoke Doc Suggestions — Semantic Clustering:
+DataSpoke Doc Suggestions — LLM-Powered Semantic Clustering:
 
-Analyzed: 700 datasets
+Analyzed: 700 datasets (schema + descriptions + sample values sent to LLM)
 Semantic clusters detected: 38
 Clusters with conflicts: 9
 
 Cluster: BOOK / PRODUCT (Critical)
 6 tables detected representing the same concept
 
-Similarity Matrix (embedding cosine distance):
-  catalog.title_master   ←→ products.digital_catalog    0.93
-  catalog.editions       ←→ content.ebook_assets         0.90
-  inventory.book_stock   ←→ storefront.listing_items     0.86
+LLM Semantic Analysis:
+  catalog.title_master   ←→ products.digital_catalog
+    LLM Verdict: "Both represent a book/product entity. title_master is print-centric
+                  (ISBN-required), digital_catalog is digital-only (product_id-based).
+                  author_id (FK) vs creator (free-text) is a key structural difference."
+    Confidence: 0.95
 
-Evidence:
-  - All 6 contain title-like fields (100% semantic match)
-  - All 6 contain a price field (95% match)
+  catalog.editions       ←→ content.ebook_assets
+    LLM Verdict: "Complementary views of the same concept — editions tracks physical
+                  format variations, ebook_assets tracks digital file formats and DRM."
+    Confidence: 0.91
+
+  inventory.book_stock   ←→ storefront.listing_items
+    LLM Verdict: "Low conceptual overlap — book_stock is warehouse inventory,
+                  listing_items is marketplace pricing. Shared only by product reference."
+    Confidence: 0.78
+
+Evidence (LLM-augmented):
+  - All 6 contain title-like fields (100% semantic match via LLM reasoning)
+  - All 6 contain a price field (95% match — LLM noted currency differences)
   - Overlapping downstream lineage: 18 shared consumers
   - Sample record overlap (estimated): 72% by ISBN/title match
+  - LLM insight: "creator" field in eBookNow is free-text, not a normalized FK —
+    simple column-name matching would have missed this distinction
 ```
 
-**Phase 1b: Source Code Reference Analysis**
+**Phase 1b: LLM-Assisted Source Code Reference Analysis**
 
-DataSpoke scans eBookNow's linked GitHub repository (`ebooknow/catalog-service`, `ebooknow/storefront-api`) for inline SQL, DBT models, and application code that references the clustered tables:
+DataSpoke scans eBookNow's linked GitHub repository (`ebooknow/catalog-service`, `ebooknow/storefront-api`) for inline SQL, DBT models, and application code that references the clustered tables. The LLM API interprets code context to generate accurate column descriptions and identify business logic embedded in application code:
+
+```python
+# LLM extracts business context from source code references
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import LLMChain
+from langchain.prompts import ChatPromptTemplate
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+code_analysis_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a code analyst. Given source code that references a database column, "
+               "generate a business-level column description. Include: purpose, constraints, "
+               "relationships to other tables, and any business logic applied to this column."),
+    ("human", "Column: {table}.{column}\nCode references:\n{code_snippets}\n"
+              "Existing schema context: {schema_context}")
+])
+code_chain = LLMChain(llm=llm, prompt=code_analysis_prompt)
+```
 
 ```
 Source Code Reference Analysis — BOOK / PRODUCT cluster:
 
 Repositories scanned: 3 (catalog-service, storefront-api, data-pipelines)
 Code references found: 147
+LLM-analyzed references: 147 (batch-processed via LangChain)
 
 Sample Finding — products.digital_catalog.creator:
   File: catalog-service/src/models/product.py:42
   Usage: creator = db.Column(String(255))  # Free-text author name
-  Insight: "creator" is free-text (not a normalized FK like author_id)
-           → Suggests differentiated description vs catalog.title_master.author_id
+  LLM Insight: "creator is a free-text field (not a normalized FK like author_id).
+                No validation against an authors table. Publisher-entered, may contain
+                multiple authors as comma-separated string."
+  → Suggests differentiated description vs catalog.title_master.author_id
 
-Auto-Generated Column Descriptions (from code context):
+LLM-Generated Column Descriptions (from code + schema context):
   products.digital_catalog.creator    → "Free-text author/creator name entered by publisher.
                                          Unlike catalog.title_master.author_id, this is NOT
-                                         a foreign key to authors table."
+                                         a foreign key to authors table. May contain multiple
+                                         names (comma-separated). No normalization applied."
   products.digital_catalog.price_usd  → "Publisher-set retail price in USD.
                                          Updated via storefront-api/pricing endpoint.
-                                         No currency conversion (USD-only)."
+                                         No currency conversion (USD-only). Validated > 0
+                                         in checkout flow (storefront-api/cart.py:88)."
   content.ebook_assets.file_format    → "Digital file format enum: EPUB, PDF, MOBI.
-                                         Validated in catalog-service upload handler."
+                                         Validated in catalog-service upload handler.
+                                         MOBI deprecated since 2023 — LLM detected warning
+                                         log in upload_handler.py:156."
 ```
 
-**Phase 1c: Similar Table Differentiation Report**
+**Phase 1c: LLM-Driven Similar Table Differentiation Report**
 
-DataSpoke generates an explicit differentiation report for tables within the BOOK/PRODUCT cluster, helping governance teams understand which tables to merge, keep, or deprecate:
+DataSpoke sends each table pair's full schema, sample data, lineage, and code references to the LLM, which generates a structured differentiation report with merge/keep/deprecate recommendations:
+
+```python
+# LLM generates differentiation report for each table pair
+diff_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a data governance advisor. Given two similar tables, produce a "
+               "differentiation report. For each pair, state: key structural difference, "
+               "overlap percentage rationale, and a clear recommendation (MERGE / KEEP / DEPRECATE)."),
+    ("human", "Table A: {table_a}\nSchema: {schema_a}\nDescription: {desc_a}\n"
+              "Table B: {table_b}\nSchema: {schema_b}\nDescription: {desc_b}\n"
+              "Shared consumers: {shared_consumers}\nRecord overlap: {overlap_pct}%")
+])
+diff_chain = LLMChain(llm=llm, prompt=diff_prompt)
+```
 
 ```
-Similar Table Differentiation Report — BOOK / PRODUCT cluster:
+LLM-Generated Differentiation Report — BOOK / PRODUCT cluster:
 
 ┌─────────────────────────┬──────────────────────────┬────────────┐
 │ Table Pair              │ Key Difference           │ Overlap %  │
@@ -613,32 +696,63 @@ Similar Table Differentiation Report — BOOK / PRODUCT cluster:
 │ vs                      │ Requires ISBN (NOT NULL) │ 72%        │
 │ products.digital_catalog│ Digital-only, no ISBN    │            │
 │                         │ required (30% lack ISBN) │            │
+│ LLM Recommendation: MERGE — create catalog.product_master       │
+│ LLM Rationale: "Core entity is identical (a book product).      │
+│   ISBN optionality is the only structural blocker. Surrogate    │
+│   product_id resolves this. creator→author_id mapping needs     │
+│   a normalization pipeline."                                    │
 ├─────────────────────────┼──────────────────────────┼────────────┤
 │ catalog.editions        │ Edition-level detail     │            │
 │ vs                      │ (format, pub_date)       │ 65%        │
 │ content.ebook_assets    │ Digital asset storage    │            │
 │                         │ (file_format, DRM)       │            │
+│ LLM Recommendation: KEEP both (complementary views)             │
+│ LLM Rationale: "editions tracks publication variants, assets    │
+│   tracks file delivery. Merging would conflate physical and     │
+│   digital concerns. Link via edition_id FK instead."            │
 ├─────────────────────────┼──────────────────────────┼────────────┤
 │ inventory.book_stock    │ Physical warehouse qty   │            │
 │ vs                      │ (warehouse_id, qty)      │ 41%        │
 │ storefront.listing_items│ Marketplace listing      │            │
 │                         │ (seller_price, listing)  │            │
+│ LLM Recommendation: KEEP book_stock, DEPRECATE listing_items    │
+│ LLM Rationale: "listing_items mixes inventory and pricing       │
+│   concerns. Migrate pricing to a canonical pricing table,       │
+│   retire listing_items."                                        │
 └─────────────────────────┴──────────────────────────┴────────────┘
-
-Recommendations:
-  catalog.title_master + products.digital_catalog  → MERGE into catalog.product_master
-  catalog.editions + content.ebook_assets          → KEEP both (complementary views)
-  inventory.book_stock                             → KEEP (physical-only scope)
-  storefront.listing_items                         → DEPRECATE (migrate to canonical)
 ```
 
-**Phase 2: Ontology Proposal**
+**Phase 2: LLM-Generated Ontology Proposal**
+
+The LLM synthesizes all prior analysis (clusters, code references, differentiation reports) into a comprehensive ontology proposal with merged schemas, table role assignments, and consistency rules:
+
+```python
+# LLM generates the full ontology proposal from accumulated context
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import LLMChain
+from langchain.prompts import ChatPromptTemplate
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+ontology_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are an enterprise data architect. Given a set of semantically similar "
+               "tables with their schemas, code references, differentiation analysis, and "
+               "lineage, propose a canonical ontology. Include: canonical entity schema, "
+               "table role assignments (keep/deprecate/merge), and consistency rules."),
+    ("human", "Cluster: {cluster_name}\n"
+              "Tables: {tables_with_schemas}\n"
+              "Differentiation report: {diff_report}\n"
+              "Code analysis: {code_analysis}\n"
+              "Downstream consumers: {consumers}")
+])
+ontology_chain = LLMChain(llm=llm, prompt=ontology_prompt)
+```
 
 ```
-Proposed Canonical Entity: catalog.product_master
+LLM-Proposed Canonical Entity: catalog.product_master
 
-Fields (merged schema):
-  - product_id          (surrogate key, new)
+Fields (merged schema — LLM-designed):
+  - product_id          (surrogate key, new — LLM: "resolves ISBN optionality")
   - isbn                (nullable — digital-only titles lack ISBN)
   - title               (normalized)
   - format              (enum: print | ebook | audiobook)
@@ -648,7 +762,7 @@ Fields (merged schema):
   - list_price          (normalized to USD)
   - publication_date
 
-Proposed Table Roles:
+LLM-Proposed Table Roles:
   catalog.product_master        → NEW canonical SSOT
   catalog.title_master          → Print view (keep, alias to canonical)
   catalog.editions              → Edition detail view (keep)
@@ -657,16 +771,19 @@ Proposed Table Roles:
   inventory.book_stock          → Inventory view (keep)
   storefront.listing_items      → Deprecated → migrate to canonical
 
-Consistency Rules:
+LLM-Generated Consistency Rules:
   R1. New pipelines MUST join on catalog.product_master
   R2. title normalized: TRIM + title-case
   R3. product_id immutable once assigned
   R4. source_system tag required on all book-originating events
+  R5. creator→author_id mapping must go through normalization pipeline (LLM-added)
 
 Impact: 18 pipelines need update | Effort: Medium (schema additive)
+LLM Migration Plan: Step-by-step SQL migration scripts auto-generated for each
+  deprecated table, with rollback procedures and data validation checks.
 ```
 
-**Phase 3: Weekly Consistency Check** — DataSpoke scans for rule violations. Example: a new pipeline joins on `products.digital_catalog` instead of `catalog.product_master`, excluding 60% of print-only titles from recommendations. Auto-correction proposed with 92% confidence.
+**Phase 3: LLM-Powered Weekly Consistency Check** — DataSpoke uses the LLM to scan new and modified pipelines for ontology rule violations. The LLM analyzes SQL join patterns, column references, and data flow to detect semantic violations that regex-based rules would miss. Example: a new pipeline joins on `products.digital_catalog` instead of `catalog.product_master`, excluding 60% of print-only titles from recommendations. LLM-generated auto-correction proposed with 92% confidence, including the exact SQL changes needed.
 
 #### DataHub Integration Points
 
@@ -718,12 +835,12 @@ emitter.emit_mcp(MetadataChangeProposalWrapper(
 
 | Component | Responsibility | Why DataHub Can't Do This |
 |-----------|---------------|--------------------------|
-| **Embedding-Based Clustering** | Generate column/description embeddings, compute cosine similarity matrices via Qdrant | DataHub has keyword search only, no vector similarity |
-| **Ontology Proposal Engine** | Propose canonical entities with merged schemas and table role assignments | DataHub stores metadata but has no schema merging logic |
-| **Consistency Rule Engine** | Define and enforce ontology rules (R1–R4), scan for violations weekly | DataHub has no rule definition or violation scanning |
-| **Source Code Analyzer** | Scan linked repositories for SQL, DBT, application code referencing tables; extract column usage context | DataHub has no source code scanning capability |
-| **Differentiation Report Generator** | Compare similar tables pairwise: purpose, schema gaps, overlap %, merge/keep/deprecate recommendation | DataHub stores individual schemas but cannot compare or recommend actions |
-| **Auto-Correction Proposer** | Suggest SQL join replacements with confidence scores | DataHub has no code-level analysis capability |
+| **LLM-Powered Semantic Clustering** | Send schema + descriptions + sample values to LLM API for deep conceptual analysis; classify datasets into business concept categories; pairwise semantic comparison beyond surface-level embedding similarity. Uses LangChain `LLMChain` for structured prompt orchestration. | DataHub has keyword search only, no semantic reasoning |
+| **LLM Ontology Proposal Engine** | LLM synthesizes cluster analysis, code references, and differentiation reports to propose canonical entities with merged schemas, table roles, and consistency rules. Uses LangChain `ChatPromptTemplate` for multi-step reasoning. | DataHub stores metadata but has no schema merging or reasoning logic |
+| **LLM Consistency Rule Engine** | LLM analyzes SQL patterns in new/modified pipelines against ontology rules (R1–R5); detects semantic violations that regex-based rules miss; generates auto-correction SQL | DataHub has no rule definition, violation scanning, or code analysis |
+| **LLM Source Code Analyzer** | Scan linked repositories; send code snippets + schema context to LLM for business-level column description generation. Uses LangChain `RecursiveCharacterTextSplitter` for large codebases. | DataHub has no source code scanning or interpretation capability |
+| **LLM Differentiation Report Generator** | LLM compares table pairs holistically (schema, lineage, code usage, sample data) and generates structured merge/keep/deprecate recommendations with rationale | DataHub stores individual schemas but cannot compare or reason about actions |
+| **Ontology/Taxonomy Builder** *(shared with UC8)* | Reusable LLM-based service that builds and maintains business concept taxonomies from metadata. Provides concept categories, hierarchical relationships, and dataset-to-concept mappings consumed by both Doc Suggestions (UC4) and Multi-Perspective Overview (UC8). See cross-cutting note below. | DataHub has no taxonomy construction or LLM integration |
 
 #### Outcome
 
@@ -1199,26 +1316,75 @@ Manual process: a governance analyst spends 3 days building a Lucidchart diagram
 
 **View 1: Taxonomy/Ontology Graph**
 
+Before rendering the graph, DataSpoke uses the shared **Ontology/Taxonomy Builder** (the same LLM-based service used in UC4) to map every dataset to ontology categories. The LLM analyzes each table's schema, descriptions, column names, sample values, and lineage context to assign business concept categories — producing the semantic groupings that drive the graph layout.
+
+```python
+# LLM-based ontology category mapping (via shared Ontology/Taxonomy Builder)
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import LLMChain
+from langchain.prompts import ChatPromptTemplate
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+# Step 1: LLM maps each dataset to ontology categories using table metadata
+taxonomy_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are an enterprise data taxonomist. Given a dataset's schema metadata "
+               "(table name, columns, types, description, tags, lineage), assign it to one "
+               "or more business ontology categories. Return a structured classification with "
+               "primary category, secondary categories, and confidence score.\n"
+               "Standard categories: Product/Catalog, Customer, Order/Transaction, "
+               "Shipping/Logistics, Marketing, Finance, Review/Rating, Recommendation, "
+               "Inventory, Publishing, Analytics/Report, Infrastructure."),
+    ("human", "Table: {table_name}\nColumns: {columns}\nDescription: {description}\n"
+              "Tags: {tags}\nUpstream: {upstream}\nDownstream: {downstream}")
+])
+taxonomy_chain = LLMChain(llm=llm, prompt=taxonomy_prompt)
+
+# Step 2: LLM refines cross-category relationships for graph edges
+relationship_prompt = ChatPromptTemplate.from_messages([
+    ("system", "Given two ontology categories and the datasets within each, determine "
+               "the semantic relationship type: dependency, derivation, complementary, "
+               "or overlap. This drives edge rendering in the taxonomy graph."),
+    ("human", "Category A: {cat_a} ({datasets_a})\nCategory B: {cat_b} ({datasets_b})\n"
+              "Shared lineage edges: {shared_edges}")
+])
+relationship_chain = LLMChain(llm=llm, prompt=relationship_prompt)
+```
+
 ```
 DataSpoke Multi-Perspective Overview — Taxonomy Graph:
 
-Nodes: 700 datasets
-Edges: 1,842 (1,204 lineage + 638 schema similarity)
-Auto-detected domains: 12 business clusters
+Pre-charting: LLM Ontology Category Mapping
+  700 datasets analyzed via LLM API (batch-processed)
+  Ontology categories assigned: 12 primary, 34 secondary
+  Mapping confidence: 94% avg (datasets with descriptions)
+                      78% avg (datasets without descriptions — LLM inferred from schema)
+
+  Sample mappings:
+    catalog.title_master        → Product/Catalog (0.98)
+    orders.purchase_history     → Order/Transaction (0.97)
+    recommendations.book_features → Recommendation (0.92), Product/Catalog (0.71)
+    marketing.eu_email_campaigns → Marketing (0.96), Customer (0.68)
+
+Nodes: 700 datasets (colored by ontology category + health score)
+Edges: 1,842 (1,204 lineage + 638 LLM-inferred semantic relationships)
+Auto-detected domains: 12 business clusters (LLM-assigned ontology categories)
 
 Visualization:
   Node color: Health score (🔴 <50 | 🟡 50-70 | 🟢 >70)
   Node size:  Usage volume (larger = more consumers)
-  Edge type:  Solid = lineage | Dashed = schema similarity
+  Node group: LLM-assigned ontology category (force-directed clustering)
+  Edge type:  Solid = lineage | Dashed = LLM-inferred semantic relationship
 
 Key Discovery — Governance Blind Spot:
   Cluster: recommendations.* (12 datasets)
+  LLM Category: "Recommendation" — high business criticality inferred
   Status: ALL RED (health scores 12–38)
   Issues:
     - Zero documented lineage (no upstream/downstream recorded)
     - High usage: 45 unique users/week across the cluster
     - No ownership assigned to 8 of 12 tables
-    - Inferred upstream (from code analysis): catalog.title_master,
+    - LLM-inferred upstream (from schema + naming analysis): catalog.title_master,
       reviews.user_ratings, orders.purchase_history
   Risk: Critical business feature (book recommendations) running on
         completely undocumented, unowned data infrastructure
@@ -1321,8 +1487,9 @@ for dataset_urn in dataset_urns:
 
 | Component | Responsibility | Why DataHub Can't Do This |
 |-----------|---------------|--------------------------|
-| **Graph Layout Engine** | Force-directed graph from lineage + schema similarity edges; interactive zoom/filter | DataHub has a basic lineage viewer, not a full-estate graph with similarity edges |
-| **Domain Classifier** | Auto-classify datasets into business domains via description/schema embeddings | DataHub supports manual domain assignment only |
+| **Ontology/Taxonomy Builder** *(shared with UC4)* | LLM-based service that maps every dataset to business ontology categories before graph rendering. Analyzes schema, descriptions, tags, and lineage via LLM API to assign primary/secondary categories. Same service used in UC4 for semantic clustering. See cross-cutting note below. | DataHub has no LLM-powered taxonomy construction |
+| **Graph Layout Engine** | Force-directed graph from lineage + LLM-inferred semantic relationship edges; nodes grouped by LLM-assigned ontology categories; interactive zoom/filter | DataHub has a basic lineage viewer, not a full-estate graph with semantic grouping |
+| **LLM Domain Classifier** | LLM analyzes schema + descriptions + lineage to auto-classify datasets into business domains; replaces embedding-only approach with richer semantic reasoning via LangChain | DataHub supports manual domain assignment only |
 | **Medallion Layer Detector** | Infer Bronze/Silver/Gold from lineage depth, naming patterns, and transformation complexity | DataHub stores tags but has no inference logic for medallion classification |
 | **Health Colorizer** | Map composite health scores to visual indicators (color, size, opacity) on graph nodes | DataHub has no visual health overlay capability |
 | **Blind Spot Analyzer** | Detect orphaned datasets, missing lineage, dead-end Bronze tables, unowned high-usage clusters | DataHub provides raw metadata but has no cross-dataset anomaly detection |
@@ -1336,6 +1503,45 @@ for dataset_urn in dataset_urns:
 | Blind spot detection | Ad-hoc, tribal knowledge | Systematic, automated |
 | Medallion classification | Manual, per-team survey | Auto-inferred, continuously updated |
 | Staleness | Immediately stale | Real-time, auto-refreshed |
+
+---
+
+## Cross-Cutting: Shared Ontology/Taxonomy Builder
+
+UC4 (Doc Suggestions) and UC8 (Multi-Perspective Overview) both require mapping datasets to business concept categories — UC4 for semantic clustering and ontology reconciliation, UC8 for graph node grouping and domain classification. Rather than duplicating this logic, DataSpoke provides a **shared Ontology/Taxonomy Builder** as a reusable backend service.
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              Ontology/Taxonomy Builder Service              │
+│                                                             │
+│  Input: DataHub metadata (schema, descriptions, tags,       │
+│         lineage, sample values) for all datasets            │
+│                                                             │
+│  Processing (LLM-powered via LangChain):                    │
+│    1. Dataset → Concept Classification (LLM per dataset)    │
+│    2. Concept Hierarchy Construction (LLM synthesis)        │
+│    3. Cross-Concept Relationship Inference (LLM pairwise)   │
+│    4. Confidence Scoring & Human Review Queue               │
+│                                                             │
+│  Output: Persistent ontology graph stored in PostgreSQL     │
+│    - concept_categories (id, name, parent_id, description)  │
+│    - dataset_concept_map (dataset_urn, concept_id, score)   │
+│    - concept_relationships (concept_a, concept_b, type)     │
+│                                                             │
+│  Consumers:                                                 │
+│    UC4: Semantic clustering, ontology reconciliation        │
+│    UC8: Graph node grouping, domain classification          │
+│    Future: NL Search (UC5) concept-aware query expansion    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Design Points:**
+- **LLM API is central**: Every classification, hierarchy inference, and relationship detection step uses the external LLM API via LangChain. The LLM reasons over schema structure, naming conventions, descriptions, and lineage — not just embedding similarity.
+- **Incremental updates**: When new datasets are ingested (UC1) or schemas change, the builder re-classifies only affected datasets and propagates changes to downstream consumers (UC4, UC8).
+- **Human-in-the-loop**: Low-confidence classifications (< 0.7) are queued for governance team review. LLM provides rationale to speed up human decisions.
+- **Versioned taxonomy**: Each taxonomy build is versioned. UC4's ontology proposals reference a specific taxonomy version, ensuring reproducibility.
 
 ---
 
@@ -1358,3 +1564,4 @@ for dataset_urn in dataset_urns:
 - **Context-Aware:** Understands data relationships and business meaning across all departments
 - **Measurable Impact:** Quantifiable improvements in quality, compliance, and efficiency
 - **Ontology Health:** Catalog remains semantically consistent through acquisitions and organic growth
+- **LLM-Native:** Extensive use of external LLM APIs (via LangChain) for semantic analysis, ontology construction, code interpretation, and consistency enforcement across UC4 and UC8
