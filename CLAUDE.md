@@ -48,7 +48,12 @@ DataSpoke is a **loosely coupled sidecar** to DataHub. DataHub is deployed separ
 
 **System components** (from MANIFESTO): UI → API → Backend/Pipeline + DataHub
 
-**API URI pattern**: `/api/v1/spoke/[de|da|dg]/...` (user-group-based routing)
+**API URI pattern** (three-tier):
+```
+/api/v1/spoke/common/…       # Common features shared across user groups
+/api/v1/spoke/[de|da|dg]/…   # User-group-specific features
+/api/v1/hub/…                # DataHub pass-through (optional ingress for clients)
+```
 
 **Planned source layout** (from spec, not yet created):
 ```
@@ -81,7 +86,7 @@ alembic upgrade head  # Apply DB migrations
 - **DataHub-backed SSOT**: DataHub stores metadata; DataSpoke extends without modifying core
 - **API Convention Compliance**: All REST APIs must follow `spec/API_DESIGN_PRINCIPLE_en.md` — covers URI structure, request/response format, content/metadata separation, meta-classifiers (`attrs`, `methods`, `events`), and query parameter conventions
 - **API-first**: OpenAPI specs live in `api/` as standalone artifacts so AI agents and frontend can iterate without a running backend
-- **User-group routing**: API endpoints segmented by DE/DA/DG for clear ownership
+- **Three-tier API routing**: `/spoke/common/` for shared features, `/spoke/[de|da|dg]/` for user-group features, `/hub/` for DataHub pass-through
 - **Temporal over Airflow**: better for long-running workflows, easier testing; use Airflow only if existing infrastructure demands it
 - **Qdrant over Pinecone**: self-hostable, Rust-based performance; consider Weaviate only for multi-tenancy requirements
 - **PostgreSQL over MongoDB**: ACID guarantees for ingestion configs, quality results, health scores

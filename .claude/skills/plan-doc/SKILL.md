@@ -87,7 +87,7 @@ Use the template for the chosen destination. Follow these style rules for both:
 - User group names must match the MANIFESTO exactly: **DE** (Data Engineering), **DA** (Data Analysis), **DG** (Data Governance)
 - Feature names must match the MANIFESTO: **Deep Technical Spec Ingestion**, **Online Data Validator**, **Automated Documentation Suggestions**, **Natural Language Search**, **Text-to-SQL Optimized Metadata**, **Enterprise Metrics Time-Series Monitoring**, **Multi-Perspective Data Overview**
 - Product name is always `DataSpoke` (no space)
-- API URIs follow the pattern: `/api/v1/spoke/[de|da|dg]/...`
+- API URIs follow the three-tier pattern: `/api/v1/spoke/common/…` (shared), `/api/v1/spoke/[de|da|dg]/…` (user-group), `/api/v1/hub/…` (DataHub pass-through)
 - For DataHub integration details, reference `DATAHUB_INTEGRATION.md` rather than duplicating SDK patterns or aspect catalogs
 - For API convention details, reference `API_DESIGN_PRINCIPLE_en.md` rather than restating URI/response format rules
 - When referencing architecture-level concepts (shared services, data flows, tech stack), align with `ARCHITECTURE.md`

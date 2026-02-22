@@ -36,7 +36,6 @@ DataSpoke is a **loosely coupled sidecar** to DataHub. DataHub is the Hub (metad
                         │
 ┌───────────────────────▼───────────────────────┐
 │                DataSpoke API                  │
-│         /api/v1/spoke/[de|da|dg]/...          │
 └───────────┬───────────────────────┬───────────┘
             │                       │
 ┌───────────▼───────────┐ ┌────────▼────────────┐
@@ -67,7 +66,7 @@ DataHub is deployed and managed **separately** — DataSpoke connects to it as a
 ### Key Architectural Tenets
 
 1. **DataHub-backed SSOT** — DataHub stores metadata; DataSpoke extends without modifying core.
-2. **User-Group Routing** — API endpoints segmented by DE/DA/DG for clear ownership.
+2. **Three-Tier API Routing** — Common features under `/spoke/common/`, user-group features under `/spoke/[de|da|dg]/`, DataHub pass-through under `/hub/`.
 3. **API-First** — Standalone OpenAPI specs in `api/` enable parallel frontend/backend development and AI-agent iteration.
 4. **Layer Separation** — Four components (UI, API, Backend/Pipeline, DataHub) are independently scalable and replaceable.
 5. **Cloud-Native** — Kubernetes-ready with containerized deployments.
@@ -133,12 +132,14 @@ src/frontend/
 
 **Technology**: FastAPI (Python 3.11+)
 
-User-group-segmented URI structure:
+Three-tier URI structure:
 
 ```
-/api/v1/spoke/de/...   → Data Engineering (ingestion, validation, doc suggestions)
-/api/v1/spoke/da/...   → Data Analysis (NL search, text-to-SQL, validation)
-/api/v1/spoke/dg/...   → Data Governance (metrics dashboard, multi-perspective overview)
+/api/v1/spoke/common/...   → Common features shared across user groups (ontology, quality score)
+/api/v1/spoke/de/...       → Data Engineering (ingestion, validation, doc suggestions)
+/api/v1/spoke/da/...       → Data Analysis (NL search, text-to-SQL, validation)
+/api/v1/spoke/dg/...       → Data Governance (metrics dashboard, multi-perspective overview)
+/api/v1/hub/...            → DataHub pass-through (optional ingress for clients)
 ```
 
 Supports RESTful CRUD and WebSocket channels for real-time streaming (alerts, validation progress).
@@ -332,7 +333,14 @@ Maps MANIFESTO features to the system components and infrastructure they require
 | Enterprise Metrics Dashboard | UC6 | `/dg/metrics/` | Health Score Aggregator, Department Mapper, Issue Tracker, Notification Engine | PostgreSQL, Temporal |
 | Multi-Perspective Data Overview | UC8 | `/dg/overview/` | Ontology Builder (shared), Graph Layout Engine, Medallion Detector, Blind Spot Analyzer | Qdrant, LLM API, PostgreSQL |
 
-### Cross-Cutting Concerns
+### Common (cross-group)
+
+| Feature | UC | API Route | Backend Services | Infrastructure |
+|---------|----|-----------|--------------------|----------------|
+| Ontology/Taxonomy Builder | UC4, UC8 | `/common/ontology/` | LLM Classification, Hierarchy Builder, Relationship Inference | LLM API, PostgreSQL, Qdrant |
+| Quality Score Engine | UC2, UC3, UC6 | `/common/quality/` | Score Aggregator, Anomaly Detector | PostgreSQL, Redis |
+
+### Cross-Cutting Infrastructure
 
 | Concern | Infrastructure | Consumers |
 |---------|---------------|-----------|
@@ -549,7 +557,7 @@ dataspoke-baseline/
 | Decision | Rationale |
 |----------|-----------|
 | DataHub as external dependency | Enterprises have existing installations; sidecar pattern enables independent lifecycle |
-| User-group URI segmentation | Clear ownership, independent evolution per group, explicit API surface per persona |
+| Three-tier URI segmentation | `/spoke/common/` for shared features, `/spoke/[de|da|dg]/` for user-group features, `/hub/` for DataHub pass-through — clear ownership with a home for cross-cutting capabilities |
 | Shared Ontology Builder | UC4 and UC8 both need dataset-to-concept mapping; avoids duplication, ensures consistency |
 | Shared Quality Score Engine | UC2, UC3, UC6 all need composite health scores; single algorithm, multiple consumers |
 | LLM as external service | Model-agnostic; swap providers without code changes; no GPU infrastructure required |

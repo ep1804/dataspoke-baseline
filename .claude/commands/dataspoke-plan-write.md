@@ -56,7 +56,7 @@ Then ask scope-specific follow-up questions. Use `AskUserQuestion` for each roun
 - Which MANIFESTO feature does this implement or extend?
 - Which use cases (UC1–UC8) does it address?
 - What DataHub read/write/event patterns are needed?
-- What API surface is anticipated? (`/api/v1/spoke/[de|da|dg]/...`)
+- What API surface is anticipated? (`/api/v1/spoke/common/…`, `/api/v1/spoke/[de|da|dg]/…`, or `/api/v1/hub/…`)
 - **Converge when**: user group confirmed, MANIFESTO feature mapping established, DataHub needs identified, API surface outlined.
 
 **Scope 4 — Implementation plan:**

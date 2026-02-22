@@ -226,7 +226,7 @@ All naming, user-group taxonomy (DE/DA/DG), and product identity derive from `MA
 Features, API routes, and UI entry points are organized by user group (DE, DA, DG) rather than by technical component. This mirrors the MANIFESTO's structure and ensures that each Spoke serves its target audience clearly.
 
 ### 4. API-first development
-The `api-spec` subagent produces OpenAPI specs as standalone artifacts before backend implementation begins. Specs follow the user-group URI routing pattern (`/api/v1/spoke/[de|da|dg]/...`). This allows frontend and backend subagents to work from a shared contract without requiring a running service.
+The `api-spec` subagent produces OpenAPI specs as standalone artifacts before backend implementation begins. Specs follow the three-tier URI pattern: `/api/v1/spoke/common/…` for shared features, `/api/v1/spoke/[de|da|dg]/…` for user-group features, `/api/v1/hub/…` for DataHub pass-through. This allows frontend and backend subagents to work from a shared contract without requiring a running service.
 
 ### 5. Least privilege for agent tools
 The permissions model is conservative by default. Agents can read and inspect freely but cannot make changes to shared or persistent state without user confirmation. This is especially important for cluster operations.
