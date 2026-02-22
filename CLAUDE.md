@@ -93,9 +93,10 @@ The `spec/` directory is hierarchical. **`MANIFESTO_en.md` is the highest author
 ```
 spec/
 ├── MANIFESTO_en.md / MANIFESTO_kr.md          ← Highest authority. Never modify.
-├── ARCHITECTURE.md                             ← System-wide architecture overview.
+├── ARCHITECTURE.md                             ← System-wide architecture: components, data flows,
+│                                                 feature mapping (UC1–UC8), shared services, deployment.
 ├── AI_SCAFFOLD.md                              ← Claude Code scaffold: Goal 2 of the project.
-├── USE_CASE_en.md / _kr.md                     ← Conceptual scenarios (vision/ideation).
+├── USE_CASE_en.md / _kr.md                     ← Conceptual scenarios (UC1–UC8, vision/ideation).
 ├── DATAHUB_INTEGRATION.md                      ← DataHub SDK patterns, aspect catalog, error handling.
 ├── API_DESIGN_PRINCIPLE_en.md / _kr.md         ← REST API conventions. Apply to all APIs.
 ├── feature/                                    ← Deep-dive specs for COMMON (cross-cutting) features.
@@ -104,18 +105,19 @@ spec/
 ├── feature/spoke/                              ← Deep-dive specs for USER-GROUP-SPECIFIC features.
 │   │                                             One file per feature, grouped by user group (DE/DA/DG).
 │   └── <FEATURE>.md
-└── plan/                                       ← Chronological decision plans/logs.
+└── impl/                                       ← Chronological implementation plans/logs.
     │                                             Newest-first. Also used for minor changes.
     └── YYYYMMDD_<topic>.md
 ```
 
 - `spec/MANIFESTO_en.md` / `spec/MANIFESTO_kr.md` — product philosophy, user-group taxonomy (DE/DA/DG)
-- `spec/ARCHITECTURE.md` — system architecture, 4 components (UI, API, Backend/Pipeline, DataHub), deployment
-- `spec/USE_CASE_en.md` / `spec/USE_CASE_kr.md` — conceptual scenarios organized by user group (vision/ideation)
+- `spec/ARCHITECTURE.md` — system architecture, components (UI, API, Backend/Pipeline, DataHub), data flows, feature-to-architecture mapping (UC1–UC8), shared services (Ontology Builder, Quality Score Engine), tech stack, deployment
+- `spec/USE_CASE_en.md` / `spec/USE_CASE_kr.md` — conceptual scenarios organized by user group (UC1–UC8, vision/ideation)
 - `spec/DATAHUB_INTEGRATION.md` — DataHub SDK patterns (read/write/event), aspect catalog, GraphQL usage, error handling conventions. **Reference this when implementing any DataHub interaction.**
+- `spec/API_DESIGN_PRINCIPLE_en.md` / `spec/API_DESIGN_PRINCIPLE_kr.md` — REST API conventions (URI structure, request/response format, content/metadata separation, meta-classifiers). **Reference this when designing any API.**
 - `spec/feature/` — specs for common/cross-cutting features (e.g. API design, dev env, shared infrastructure)
 - `spec/feature/spoke/` — specs for user-group-specific features (DE: Ingestion, Validator, Doc Suggestions; DA: NL Search, Text-to-SQL Metadata; DG: Metrics Dashboard, Multi-Perspective Overview)
-- `spec/impl/` — chronological decision plans/logs for implementation (also used for minor changes)
+- `spec/impl/` — chronological implementation plans/logs (also used for minor changes)
 - `dev_env/README.md` — local Kubernetes setup details
 
 c.f. When writing Korean documents, use the plain style (-다/-한다) instead of the polite honorific style (-입니다/-합니다).
