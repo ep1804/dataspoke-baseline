@@ -88,7 +88,7 @@ alembic upgrade head  # Apply DB migrations
 
 ## Spec Documents
 
-The `spec/` directory is hierarchical. **`MANIFESTO_en.md` / `MANIFESTO_kr.md` are the highest authority** — all naming, user-group taxonomy (DE/DA/DG), and product identity derive from them.
+The `spec/` directory is hierarchical. **`MANIFESTO_en.md` is the highest authority** — all naming, user-group taxonomy (DE/DA/DG), and product identity derive from them.
 
 ```
 spec/
@@ -115,8 +115,10 @@ spec/
 - `spec/DATAHUB_INTEGRATION.md` — DataHub SDK patterns (read/write/event), aspect catalog, GraphQL usage, error handling conventions. **Reference this when implementing any DataHub interaction.**
 - `spec/feature/` — specs for common/cross-cutting features (e.g. API design, dev env, shared infrastructure)
 - `spec/feature/spoke/` — specs for user-group-specific features (DE: Ingestion, Validator, Doc Suggestions; DA: NL Search, Text-to-SQL Metadata; DG: Metrics Dashboard, Multi-Perspective Overview)
-- `spec/plan/` — chronological decision plans/logs (also used for minor changes)
+- `spec/impl/` — chronological decision plans/logs for implementation (also used for minor changes)
 - `dev_env/README.md` — local Kubernetes setup details
+
+c.f. When writing Korean documents, use the plain style (-다/-한다) instead of the polite honorific style (-입니다/-합니다).
 
 ## Git Commit Convention
 
@@ -134,7 +136,7 @@ Skills live in `.claude/skills/`. Claude loads them automatically when the conte
 |-------|-----------|---------|
 | `kubectl` | `/kubectl <operation>` | Run kubectl/helm operations against the local cluster; reads `dev_env/.env` for context and namespaces. User-invoked only. |
 | `monitor-k8s` | `/monitor-k8s [focus]` | Full cluster health report (pods, events, Helm releases). Runs in a forked subagent. |
-| `plan-doc` | `/plan-doc <topic>` | Write spec documents routed to the correct tier: `spec/feature/` for common features, `spec/feature/spoke/` for user-group-specific features (DE/DA/DG), `spec/plan/` for chronological decision plans/logs. |
+| `plan-doc` | `/plan-doc <topic>` | Write spec documents routed to the correct tier: `spec/feature/` for common features, `spec/feature/spoke/` for user-group-specific features (DE/DA/DG), `spec/impl/` for chronological decision plans/logs for implementation. |
 | `datahub-api` | `/datahub-api <task>` | Answer DataHub data model questions (Q&A mode) or write/test Python code against the local DataHub instance (Code Writer mode). Auto-triggered on DataHub API tasks. |
 
 ### Commands — user-invoked workflows

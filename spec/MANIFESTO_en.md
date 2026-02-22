@@ -123,4 +123,4 @@ Provides commands and skills for step-by-step development workflows.
   - Local Kubernetes cluster-based development environment provisioning tools
 - **Development Planning**
   - Feature spec authoring: Define features per user group under the `spec/feature/spoke` directory. Supports draft generation through guided Q&A across domains such as ingestion and quality.
-  - Detailed implementation planning: Write work plans under the `spec/plan` directory, considering current implementation state and environment. Receive suggestions for AI coding approaches (Skill, Sub-agent composition, etc.) and reinforce the scaffold accordingly.
+  - Detailed implementation planning: Write work plans under the `spec/impl` directory, considering current implementation state and environment. Receive suggestions for AI coding approaches (Skill, Sub-agent composition, etc.) and reinforce the scaffold accordingly.

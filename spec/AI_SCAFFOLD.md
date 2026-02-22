@@ -35,7 +35,7 @@ This document covers **Goal 2**. The scaffold is the set of Claude Code configur
 The scaffold supports two categories of workflows (from MANIFESTO §4):
 
 - **Development Environment Setup** — GitHub clone, reference data setup, and local Kubernetes cluster-based dev environment provisioning
-- **Development Planning** — Feature spec authoring per user group (DE/DA/DG) under `spec/feature/`, and chronological decision plans/logs under `spec/plan/` with AI coding approach suggestions
+- **Development Planning** — Feature spec authoring per user group (DE/DA/DG) under `spec/feature/`, and chronological decision plans/logs under `spec/impl/` with AI coding approach suggestions
 
 ---
 
@@ -79,7 +79,7 @@ Skills are prompt extensions that give the agent specialized context or workflow
 |-------|-----------|-------|---------|
 | `kubectl` | `/kubectl <operation>` | User-invoked only | Run kubectl/helm operations against the local cluster; reads cluster name and namespaces from `dev_env/.env` |
 | `monitor-k8s` | `/monitor-k8s [focus]` | User-invoked; runs in forked subagent | Full cluster health report: pod status, recent events, Helm releases |
-| `plan-doc` | `/plan-doc <topic>` | User-invoked or auto-triggered when writing specs | Route spec authorship to the correct tier: `spec/feature/` for common features, `spec/feature/spoke/` for user-group-specific features (DE/DA/DG), `spec/plan/` for chronological decision plans/logs |
+| `plan-doc` | `/plan-doc <topic>` | User-invoked or auto-triggered when writing specs | Route spec authorship to the correct tier: `spec/feature/` for common features, `spec/feature/spoke/` for user-group-specific features (DE/DA/DG), `spec/impl/` for chronological decision plans/logs |
 | `datahub-api` | `/datahub-api <task>` | User-invoked or auto-triggered on DataHub API tasks | Dual-mode skill: Q&A mode for DataHub data model questions, Code Writer mode for writing/testing Python code against DataHub APIs. Uses `ref/github/datahub/` source and live cluster for validation |
 
 ### Commands

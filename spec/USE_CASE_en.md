@@ -30,6 +30,8 @@ Imazon is a 15-year-old online bookstore. Its data landscape reflects years of o
 | [Use Case 4: Doc Suggestions — Post-Acquisition Ontology Reconciliation](#use-case-4-doc-suggestions--post-acquisition-ontology-reconciliation) | DE | Automated Documentation Suggestions |
 | [Use Case 5: NL Search — GDPR Compliance Audit](#use-case-5-nl-search--gdpr-compliance-audit) | DA | Natural Language Search |
 | [Use Case 6: Metrics Dashboard — Enterprise Metadata Health](#use-case-6-metrics-dashboard--enterprise-metadata-health) | DG | Enterprise Metrics Time-Series Monitoring |
+| [Use Case 7: Text-to-SQL Metadata — AI-Assisted Genre Analysis](#use-case-7-text-to-sql-metadata--ai-assisted-genre-analysis) | DA | Text-to-SQL Optimized Metadata |
+| [Use Case 8: Multi-Perspective Overview — Enterprise Data Visualization](#use-case-8-multi-perspective-overview--enterprise-data-visualization) | DG | Multi-Perspective Data Overview |
 
 ---
 
@@ -307,6 +309,30 @@ Validation Results:
 
 **Step 4**: AI Agent deploys with verified sources, compliant structure, and quality checks.
 
+**Step 5: Analyst Validation (DA Perspective)**
+
+A marketing analyst wants to connect `orders.purchase_history` to a Tableau dashboard for quarterly buyer-segment reporting. Before connecting, she validates the table through the DA endpoint:
+
+```python
+# POST /api/v1/spoke/da/validator/check
+dataspoke.validator.check({
+  "dataset": "orders.purchase_history",
+  "use_case": "reporting_dashboard",
+  "checks": ["freshness", "certification", "schema_stability"]
+})
+
+# Response:
+{
+  "status": "approved",
+  "certification": "Certified for reporting use",
+  "freshness": "Updated 45 min ago (SLA: hourly) ✓",
+  "schema_stability": "No breaking changes in 90 days ✓",
+  "recommendation": "Safe to connect — certified, stable, and fresh"
+}
+```
+
+The DA validation flow focuses on **fitness-for-use**: Is this table certified for reporting? Is the schema stable enough for a dashboard that won't break on Monday morning? Is the data fresh enough for the intended audience? This contrasts with the DE flow (Steps 1–4), which focuses on **pipeline construction**: Is the source healthy enough to build on? Are there quality anomalies? Is the output schema compliant? Both flows share the same underlying Quality Score Engine but apply different check profiles tailored to each group's concerns.
+
 #### DataHub Integration Points
 
 The Validator is primarily a **read** consumer. It queries multiple DataHub aspects to assemble health assessments:
@@ -546,6 +572,66 @@ Evidence:
   - Sample record overlap (estimated): 72% by ISBN/title match
 ```
 
+**Phase 1b: Source Code Reference Analysis**
+
+DataSpoke scans eBookNow's linked GitHub repository (`ebooknow/catalog-service`, `ebooknow/storefront-api`) for inline SQL, DBT models, and application code that references the clustered tables:
+
+```
+Source Code Reference Analysis — BOOK / PRODUCT cluster:
+
+Repositories scanned: 3 (catalog-service, storefront-api, data-pipelines)
+Code references found: 147
+
+Sample Finding — products.digital_catalog.creator:
+  File: catalog-service/src/models/product.py:42
+  Usage: creator = db.Column(String(255))  # Free-text author name
+  Insight: "creator" is free-text (not a normalized FK like author_id)
+           → Suggests differentiated description vs catalog.title_master.author_id
+
+Auto-Generated Column Descriptions (from code context):
+  products.digital_catalog.creator    → "Free-text author/creator name entered by publisher.
+                                         Unlike catalog.title_master.author_id, this is NOT
+                                         a foreign key to authors table."
+  products.digital_catalog.price_usd  → "Publisher-set retail price in USD.
+                                         Updated via storefront-api/pricing endpoint.
+                                         No currency conversion (USD-only)."
+  content.ebook_assets.file_format    → "Digital file format enum: EPUB, PDF, MOBI.
+                                         Validated in catalog-service upload handler."
+```
+
+**Phase 1c: Similar Table Differentiation Report**
+
+DataSpoke generates an explicit differentiation report for tables within the BOOK/PRODUCT cluster, helping governance teams understand which tables to merge, keep, or deprecate:
+
+```
+Similar Table Differentiation Report — BOOK / PRODUCT cluster:
+
+┌─────────────────────────┬──────────────────────────┬────────────┐
+│ Table Pair              │ Key Difference           │ Overlap %  │
+├─────────────────────────┼──────────────────────────┼────────────┤
+│ catalog.title_master    │ Print-focused SSOT       │            │
+│ vs                      │ Requires ISBN (NOT NULL) │ 72%        │
+│ products.digital_catalog│ Digital-only, no ISBN    │            │
+│                         │ required (30% lack ISBN) │            │
+├─────────────────────────┼──────────────────────────┼────────────┤
+│ catalog.editions        │ Edition-level detail     │            │
+│ vs                      │ (format, pub_date)       │ 65%        │
+│ content.ebook_assets    │ Digital asset storage    │            │
+│                         │ (file_format, DRM)       │            │
+├─────────────────────────┼──────────────────────────┼────────────┤
+│ inventory.book_stock    │ Physical warehouse qty   │            │
+│ vs                      │ (warehouse_id, qty)      │ 41%        │
+│ storefront.listing_items│ Marketplace listing      │            │
+│                         │ (seller_price, listing)  │            │
+└─────────────────────────┴──────────────────────────┴────────────┘
+
+Recommendations:
+  catalog.title_master + products.digital_catalog  → MERGE into catalog.product_master
+  catalog.editions + content.ebook_assets          → KEEP both (complementary views)
+  inventory.book_stock                             → KEEP (physical-only scope)
+  storefront.listing_items                         → DEPRECATE (migrate to canonical)
+```
+
 **Phase 2: Ontology Proposal**
 
 ```
@@ -593,6 +679,7 @@ Doc Suggestions is a **read + write** consumer. It reads schemas and properties 
 | Shared consumers | `upstreamLineage` | GraphQL: `searchAcrossLineage` | Downstream overlap across candidate tables |
 | Mark deprecated | `deprecation` | `POST /openapi/v3/entity/dataset` | `deprecated=true`, `note`, `replacement` URN |
 | Tag source system | `globalTags` | `POST /openapi/v3/entity/dataset` | `urn:li:tag:source_imazon`, `urn:li:tag:source_ebooknow` |
+| Source code refs | `datasetProperties.customProperties` | `POST /openapi/v3/entity/dataset` | `code_references`, `auto_generated_descriptions` from source analysis |
 
 ```python
 from datahub.emitter.rest_emitter import DatahubRestEmitter
@@ -634,6 +721,8 @@ emitter.emit_mcp(MetadataChangeProposalWrapper(
 | **Embedding-Based Clustering** | Generate column/description embeddings, compute cosine similarity matrices via Qdrant | DataHub has keyword search only, no vector similarity |
 | **Ontology Proposal Engine** | Propose canonical entities with merged schemas and table role assignments | DataHub stores metadata but has no schema merging logic |
 | **Consistency Rule Engine** | Define and enforce ontology rules (R1–R4), scan for violations weekly | DataHub has no rule definition or violation scanning |
+| **Source Code Analyzer** | Scan linked repositories for SQL, DBT, application code referencing tables; extract column usage context | DataHub has no source code scanning capability |
+| **Differentiation Report Generator** | Compare similar tables pairwise: purpose, schema gaps, overlap %, merge/keep/deprecate recommendation | DataHub stores individual schemas but cannot compare or recommend actions |
 | **Auto-Correction Proposer** | Suggest SQL join replacements with confidence scores | DataHub has no code-level analysis capability |
 
 #### Outcome
@@ -781,6 +870,181 @@ usage = graph.get_timeseries_values(
 
 ---
 
+### Use Case 7: Text-to-SQL Metadata — AI-Assisted Genre Analysis
+
+**Feature**: Text-to-SQL Optimized Metadata
+
+#### Scenario: Business Analyst Asks AI for Best-Selling Genres
+
+**Background:**
+A business analyst at Imazon asks an AI assistant: "What were Imazon's top 10 best-selling genres in Q4?" The AI needs to generate SQL, but DataHub's standard metadata only provides column names and types — no value profiles, no business glossary mappings, no join path hints. Without enriched context, the AI produces incorrect SQL that returns wrong results.
+
+#### Without DataSpoke
+
+The AI generates SQL using only column names and types from DataHub:
+
+```sql
+-- AI-generated SQL (WRONG)
+SELECT genre, COUNT(*) as sales
+FROM orders.purchase_history
+JOIN catalog.title_master ON orders.purchase_history.isbn = catalog.title_master.isbn
+WHERE purchase_date >= '2024-10-01'
+  AND genre = 'Fiction'  -- Wrong: actual values are codes like 'FIC-001'
+GROUP BY genre
+ORDER BY sales DESC
+LIMIT 10;
+
+-- Problems:
+-- 1. Uses "genre" column (display name) instead of "genre_code" (actual column)
+-- 2. Joins on isbn directly — misses edition_id intermediate join
+-- 3. Filters WHERE genre = 'Fiction' — actual values are codes (FIC-001, NF-002)
+-- 4. Misses genre_hierarchy table needed for human-readable names
+```
+
+Result: 0 rows returned. Analyst spends 15–30 minutes debugging, asks a data engineer, iterates manually.
+
+#### With DataSpoke
+
+**Step 1: Metadata Context Retrieval**
+
+```python
+# POST /api/v1/spoke/da/text-to-sql/context
+dataspoke.text_to_sql.get_context({
+  "question": "What were Imazon's top 10 best-selling genres in Q4?",
+  "candidate_tables": ["orders.purchase_history", "catalog.title_master", "catalog.genre_hierarchy"]
+})
+
+# Response:
+{
+  "column_profiles": {
+    "catalog.title_master.genre_code": {
+      "sample_values": ["FIC-001", "NF-002", "SCI-003", "MYS-004", "ROM-005"],
+      "cardinality": 48,
+      "distribution": "top 5 cover 62% of titles",
+      "business_glossary": "Genre classification code — maps to genre_hierarchy.code for display name"
+    },
+    "catalog.genre_hierarchy.display_name": {
+      "sample_values": ["Fiction", "Non-Fiction", "Science Fiction", "Mystery", "Romance"],
+      "note": "Human-readable genre name — use this for output display"
+    }
+  },
+  "join_paths": {
+    "recommended": {
+      "path": "orders.purchase_history → orders.order_items → catalog.editions → catalog.title_master → catalog.genre_hierarchy",
+      "join_keys": [
+        "purchase_history.order_id = order_items.order_id",
+        "order_items.edition_id = editions.edition_id",
+        "editions.isbn = title_master.isbn",
+        "title_master.genre_code = genre_hierarchy.code"
+      ],
+      "confidence": 0.95,
+      "source": "lineage + historical query analysis"
+    }
+  },
+  "sample_queries": [
+    {
+      "description": "Monthly genre sales report (from topSqlQueries)",
+      "sql": "SELECT gh.display_name, COUNT(*) FROM orders.order_items oi JOIN catalog.editions e ON oi.edition_id = e.edition_id JOIN catalog.title_master tm ON e.isbn = tm.isbn JOIN catalog.genre_hierarchy gh ON tm.genre_code = gh.code GROUP BY gh.display_name"
+    }
+  ],
+  "date_conventions": {
+    "orders.purchase_history.purchase_date": "DATE type, Q4 = WHERE purchase_date BETWEEN '2024-10-01' AND '2024-12-31'"
+  }
+}
+```
+
+**Step 2: AI Generates Correct SQL**
+
+With DataSpoke's enriched context, the AI produces a working query:
+
+```sql
+-- AI-generated SQL (CORRECT — with DataSpoke context)
+SELECT gh.display_name AS genre,
+       COUNT(DISTINCT oi.order_item_id) AS total_sales
+FROM orders.purchase_history ph
+JOIN orders.order_items oi ON ph.order_id = oi.order_id
+JOIN catalog.editions e ON oi.edition_id = e.edition_id
+JOIN catalog.title_master tm ON e.isbn = tm.isbn
+JOIN catalog.genre_hierarchy gh ON tm.genre_code = gh.code
+WHERE ph.purchase_date BETWEEN '2024-10-01' AND '2024-12-31'
+GROUP BY gh.display_name
+ORDER BY total_sales DESC
+LIMIT 10;
+
+-- Result:
+-- Fiction          42,381
+-- Mystery          38,912
+-- Romance          31,205
+-- Science Fiction  28,744
+-- Non-Fiction      25,891
+-- ...
+```
+
+**Step 3: Feedback Loop**
+
+The successful query is recorded. DataSpoke reinforces the business glossary mapping (`genre_code` → `genre_hierarchy.display_name`) and the 4-hop join path for future queries about genre-related topics.
+
+#### DataHub Integration Points
+
+Text-to-SQL context is a **read**-heavy consumer. It queries metadata aspects to build enriched context for AI SQL generation:
+
+| Context Step | DataHub Aspect | REST API Path | What It Returns |
+|-------------|---------------|---------------|----------------|
+| Column names/types | `schemaMetadata` | `GET /aspects/{urn}?aspect=schemaMetadata` | Column definitions — base schema for SQL generation |
+| Table descriptions | `datasetProperties` | `GET /aspects/{urn}?aspect=datasetProperties` | Business descriptions for table identification |
+| Historical queries | `datasetUsageStatistics` (timeseries) | `POST /aspects?action=getTimeseriesAspectValues` | `topSqlQueries` — sample queries for pattern extraction |
+| Join path inference | `upstreamLineage` | `GET /aspects/{urn}?aspect=upstreamLineage` | Lineage edges — basis for multi-hop join recommendations |
+
+```python
+from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
+from datahub.emitter.mce_builder import make_dataset_urn
+from datahub.metadata.schema_classes import (
+    DatasetUsageStatisticsClass,
+    SchemaMetadataClass,
+    UpstreamLineageClass,
+)
+
+graph = DataHubGraph(DatahubClientConfig(server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN))
+dataset_urn = make_dataset_urn(platform="oracle", name="catalog.title_master", env="PROD")
+
+# Schema — column names and types for SQL generation
+# REST: GET /aspects/{urn}?aspect=schemaMetadata
+schema = graph.get_aspect(dataset_urn, SchemaMetadataClass)
+
+# Usage statistics — topSqlQueries for sample query patterns
+# REST: POST /aspects?action=getTimeseriesAspectValues
+usage = graph.get_timeseries_values(
+    dataset_urn, DatasetUsageStatisticsClass, filter={}, limit=30,
+)
+
+# Upstream lineage — join path inference from lineage edges
+# REST: GET /aspects/{urn}?aspect=upstreamLineage
+lineage = graph.get_aspect(dataset_urn, UpstreamLineageClass)
+```
+
+> **Key point**: DataHub stores schema, usage statistics, and lineage. DataSpoke adds column value profiling, business glossary mapping, join path recommendation, and LLM context optimization.
+
+#### DataSpoke Custom Implementation
+
+| Component | Responsibility | Why DataHub Can't Do This |
+|-----------|---------------|--------------------------|
+| **Column Value Profiler** | Sample values, cardinality, distribution analysis beyond DataHub's rowCount/nullCount | DataHub profiles store aggregate statistics, not value-level distributions |
+| **Business Glossary Mapper** | Map technical columns to business terms with value translations (e.g., `FIC-001` → `Fiction`) | DataHub stores glossary terms but has no automated column-to-term mapping |
+| **Join Path Recommender** | Combine lineage + usage patterns to recommend optimal multi-hop join paths | DataHub stores lineage edges but has no join path computation |
+| **SQL Template Generator** | Generate SQL scaffolds from metadata + historical queries | DataHub provides raw metadata, no SQL generation capability |
+| **Context Window Optimizer** | Select most relevant metadata to fit LLM token limits for accurate SQL generation | DataHub has no awareness of LLM context constraints |
+
+#### Outcome
+
+| Metric | Without DataSpoke | With DataSpoke |
+|--------|------------------|----------------|
+| SQL first-attempt accuracy | ~30% | ~90% |
+| Time to working query | 15–30 min (manual iteration) | 1–2 min (AI-assisted) |
+| Join path correctness | Frequent errors (wrong keys) | 95% correct (lineage-informed) |
+| Business term resolution | Manual lookup | Automatic glossary mapping |
+
+---
+
 ## Data Governance (DG) Group
 
 ### Use Case 6: Metrics Dashboard — Enterprise Metadata Health
@@ -918,6 +1182,163 @@ for dataset_urn in dataset_urns:
 
 ---
 
+### Use Case 8: Multi-Perspective Overview — Enterprise Data Visualization
+
+**Feature**: Multi-Perspective Data Overview
+
+#### Scenario: CDO Wants to Visualize the Entire Data Estate
+
+**Background:**
+After UC6's metadata health initiative raised the enterprise score from 59 to 77, Imazon's CDO asks the next question: "Show me our entire data landscape — not as a spreadsheet, but as something I can explore." With 700+ datasets across 8 domains, tabular health scores aren't enough. The governance team needs visual exploration to spot patterns, blind spots, and structural issues invisible in flat tables.
+
+#### Without DataSpoke
+
+Manual process: a governance analyst spends 3 days building a Lucidchart diagram. Nodes are hand-placed, colors hand-assigned based on tribal knowledge about data quality. Medallion layer classification (Bronze/Silver/Gold) is done by asking engineers team by team. The diagram is immediately stale — new datasets added next week won't appear. **Time: 3–5 days. Coverage: ~60% of datasets (the rest are "unknown").**
+
+#### With DataSpoke
+
+**View 1: Taxonomy/Ontology Graph**
+
+```
+DataSpoke Multi-Perspective Overview — Taxonomy Graph:
+
+Nodes: 700 datasets
+Edges: 1,842 (1,204 lineage + 638 schema similarity)
+Auto-detected domains: 12 business clusters
+
+Visualization:
+  Node color: Health score (🔴 <50 | 🟡 50-70 | 🟢 >70)
+  Node size:  Usage volume (larger = more consumers)
+  Edge type:  Solid = lineage | Dashed = schema similarity
+
+Key Discovery — Governance Blind Spot:
+  Cluster: recommendations.* (12 datasets)
+  Status: ALL RED (health scores 12–38)
+  Issues:
+    - Zero documented lineage (no upstream/downstream recorded)
+    - High usage: 45 unique users/week across the cluster
+    - No ownership assigned to 8 of 12 tables
+    - Inferred upstream (from code analysis): catalog.title_master,
+      reviews.user_ratings, orders.purchase_history
+  Risk: Critical business feature (book recommendations) running on
+        completely undocumented, unowned data infrastructure
+
+  Drill-down:
+    recommendations.book_features       → Health: 38 | Users: 22 | Owner: NONE
+    recommendations.collaborative_scores → Health: 25 | Users: 18 | Owner: NONE
+    recommendations.content_embeddings   → Health: 12 | Users: 8  | Owner: NONE
+    [... 9 more ...]
+
+  Action: Escalated to Engineering VP — mandatory ownership + documentation sprint
+```
+
+**View 2: Medallion Architecture**
+
+```
+DataSpoke Multi-Perspective Overview — Medallion Classification:
+
+Auto-classified (by lineage depth + naming patterns + schema analysis):
+
+┌──────────────┬────────┬──────────────────────────────────────────────┐
+│ Layer        │ Count  │ Characteristics                              │
+├──────────────┼────────┼──────────────────────────────────────────────┤
+│ 🥉 Bronze    │ 180    │ Raw ingestion, external sources, _raw suffix │
+│ 🥈 Silver    │ 120    │ Cleaned/joined, _cleaned/_enriched suffix    │
+│ 🥇 Gold      │ 55     │ Business-ready aggregates, reports.* domain  │
+│ ❓ Unclassified│ 345  │ Cannot infer layer from available metadata   │
+└──────────────┴────────┴──────────────────────────────────────────────┘
+
+Gap Analysis:
+  Bronze → Silver conversion rate: 60% (108/180 have Silver counterparts)
+  40% of Bronze tables (72) have NO Silver counterpart
+    → Ingested but never refined — candidates for cleanup
+
+  Top Cleanup Candidates (Bronze with no downstream, low usage):
+    publishers.feed_raw_legacy      — Last accessed: 8 months ago | 0 downstream
+    shipping.carrier_raw_v1         — Last accessed: 6 months ago | 0 downstream
+    marketing.campaign_import_2022  — Last accessed: 11 months ago | 0 downstream
+    [... 12 more identified ...]
+
+  Storage Impact: ~2.3 TB recoverable from stale Bronze tables
+
+  Unclassified Triage:
+    345 datasets need manual review or enriched metadata for auto-classification
+    DataSpoke recommendation: Run Deep Ingestion (UC1) on top 50 by usage volume
+      → Estimated to auto-classify 180 of 345 (52%)
+```
+
+#### DataHub Integration Points
+
+The Multi-Perspective Overview is a **read**-heavy consumer. It queries broadly across all datasets to construct graph and classification views:
+
+| Visualization Step | DataHub Aspect | REST API Path | What It Returns |
+|-------------------|---------------|---------------|----------------|
+| Domain hints | `datasetProperties` | `GET /aspects/{urn}?aspect=datasetProperties` | Descriptions, `customProperties` — domain classification input |
+| Lineage edges | `upstreamLineage` | `GET /aspects/{urn}?aspect=upstreamLineage` | Upstream dataset URNs — graph construction |
+| Medallion / domain tags | `globalTags` | `GET /aspects/{urn}?aspect=globalTags` | `urn:li:tag:bronze`, `urn:li:tag:gold`, domain tags |
+| Department grouping | `ownership` | `GET /aspects/{urn}?aspect=ownership` | Owner URN → department mapping for cluster coloring |
+| Usage for node sizing | `datasetUsageStatistics` (timeseries) | `POST /aspects?action=getTimeseriesAspectValues` | `uniqueUserCount`, `totalSqlQueries` — node size input |
+| Schema similarity | `schemaMetadata` | `GET /aspects/{urn}?aspect=schemaMetadata` | Column names/types — overlap computation for similarity edges |
+
+```python
+from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
+from datahub.emitter.mce_builder import make_dataset_urn
+from datahub.metadata.schema_classes import (
+    DatasetPropertiesClass,
+    GlobalTagsClass,
+    OwnershipClass,
+    SchemaMetadataClass,
+    UpstreamLineageClass,
+)
+
+graph = DataHubGraph(DatahubClientConfig(server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN))
+
+# Enumerate all datasets for graph construction
+# GraphQL: scrollAcrossEntities or REST filter
+dataset_urns = list(graph.get_urns_by_filter(entity_types=["dataset"]))
+
+for dataset_urn in dataset_urns:
+    # Lineage — edges for graph construction
+    # REST: GET /aspects/{urn}?aspect=upstreamLineage
+    lineage = graph.get_aspect(dataset_urn, UpstreamLineageClass)
+
+    # Schema — column overlap for similarity edges
+    # REST: GET /aspects/{urn}?aspect=schemaMetadata
+    schema = graph.get_aspect(dataset_urn, SchemaMetadataClass)
+
+    # Tags — medallion layer and domain classification
+    # REST: GET /aspects/{urn}?aspect=globalTags
+    tags = graph.get_aspect(dataset_urn, GlobalTagsClass)
+
+    # Properties — descriptions for domain clustering
+    # REST: GET /aspects/{urn}?aspect=datasetProperties
+    properties = graph.get_aspect(dataset_urn, DatasetPropertiesClass)
+```
+
+> **Key point**: DataHub provides per-dataset metadata (lineage, schema, tags, usage). DataSpoke aggregates this into interactive graph visualizations, auto-classification, and blind spot detection.
+
+#### DataSpoke Custom Implementation
+
+| Component | Responsibility | Why DataHub Can't Do This |
+|-----------|---------------|--------------------------|
+| **Graph Layout Engine** | Force-directed graph from lineage + schema similarity edges; interactive zoom/filter | DataHub has a basic lineage viewer, not a full-estate graph with similarity edges |
+| **Domain Classifier** | Auto-classify datasets into business domains via description/schema embeddings | DataHub supports manual domain assignment only |
+| **Medallion Layer Detector** | Infer Bronze/Silver/Gold from lineage depth, naming patterns, and transformation complexity | DataHub stores tags but has no inference logic for medallion classification |
+| **Health Colorizer** | Map composite health scores to visual indicators (color, size, opacity) on graph nodes | DataHub has no visual health overlay capability |
+| **Blind Spot Analyzer** | Detect orphaned datasets, missing lineage, dead-end Bronze tables, unowned high-usage clusters | DataHub provides raw metadata but has no cross-dataset anomaly detection |
+
+#### Outcome
+
+| Metric | Manual Diagramming | DataSpoke Multi-Perspective |
+|--------|-------------------|----------------------------|
+| Time to full estate view | 3–5 days | Minutes (auto-generated) |
+| Dataset coverage | ~60% (known tables) | 100% (all registered datasets) |
+| Blind spot detection | Ad-hoc, tribal knowledge | Systematic, automated |
+| Medallion classification | Manual, per-team survey | Auto-inferred, continuously updated |
+| Staleness | Immediately stale | Real-time, auto-refreshed |
+
+---
+
 ## Summary: Value Delivered
 
 | Use Case | User Group | Feature | Traditional Approach | With DataSpoke | Improvement |
@@ -928,6 +1349,8 @@ for dataset_urn in dataset_urns:
 | **Post-Acquisition Ontology** | DE | Doc Suggestions | 3-month manual reconciliation | Automated proposal in hours | Orders-of-magnitude faster |
 | **GDPR Compliance Audit** | DA | NL Search | 4–6 hours manual search | 2–5 minutes automated | 98% time savings |
 | **Enterprise Metadata Health** | DG | Metrics Dashboard | Quarterly manual audits | Real-time continuous monitoring | 80% efficiency gain |
+| **AI-Assisted Genre Analysis** | DA | Text-to-SQL Metadata | Manual SQL, wrong joins/values | 90% first-attempt accuracy | ~60% SQL accuracy gain |
+| **Enterprise Data Visualization** | DG | Multi-Perspective Overview | Manual diagramming, days | Real-time auto-generated graphs | Systematic blind spot detection |
 
 **Cross-cutting Benefits:**
 - **AI-Ready:** Enables autonomous agents to work safely with Imazon's production data
