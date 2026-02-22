@@ -9,10 +9,18 @@ allowed-tools: Read, Write, Edit
 
 ```
 spec/
-├── MANIFESTO_en.md     ← Highest authority. Canonical product identity,
-├── MANIFESTO_kr.md       user-group taxonomy (DE/DA/DG), naming. Never modify.
-├── ARCHITECTURE.md     ← Top-level system architecture overview.
-├── USE_CASE_en.md         ← Top-level conceptual scenarios.
+├── MANIFESTO_en.md / _kr.md   ← Highest authority. Product identity, user-group
+│                                 taxonomy (DE/DA/DG), naming. Never modify.
+├── ARCHITECTURE.md            ← System-wide architecture: components, tech stack,
+│                                 data flows, feature-to-architecture mapping,
+│                                 shared services, deployment. Conforms to MANIFESTO.
+├── USE_CASE_en.md / _kr.md    ← Conceptual scenarios (UC1–UC8) by user group.
+├── AI_SCAFFOLD.md             ← Goal 2: Claude Code scaffold conventions.
+├── DATAHUB_INTEGRATION.md     ← DataHub SDK patterns, aspect catalog, GraphQL,
+│                                 event subscription, error handling.
+├── API_DESIGN_PRINCIPLE_en.md / _kr.md
+│                              ← REST API conventions: URI structure, request/response
+│                                 format, content/metadata separation, meta-classifiers.
 │
 ├── feature/            ← Deep-dive specs for COMMON (cross-cutting) features.
 │   │                     Clean, timeless reference format.
@@ -24,7 +32,7 @@ spec/
 │   │                     One file per feature, tagged by user group (DE/DA/DG).
 │   └── <FEATURE>.md      e.g. INGESTION.md, NL_SEARCH.md, METRICS_DASHBOARD.md
 │
-└── plan/               ← Chronological decision plans/logs.
+└── impl/               ← Chronological implementation plans/logs.
     │                     Also used for minor changes. Each entry is dated.
     └── YYYYMMDD_<topic>.md
 ```
@@ -33,7 +41,7 @@ spec/
 - Top-level `spec/` — project-wide documents only. Do NOT create new top-level files unless the topic affects the whole system and warrants an architectural-level document.
 - `spec/feature/` — common/cross-cutting feature deep-dives that are not specific to a single user group (e.g. `API.md`, `DEV_ENV.md`, shared infrastructure).
 - `spec/feature/spoke/` — user-group-specific feature deep-dives. These map to features defined in the MANIFESTO under DE, DA, or DG groups. Examples: `INGESTION.md` (DE), `ONLINE_VALIDATOR.md` (DE/DA), `NL_SEARCH.md` (DA), `METRICS_DASHBOARD.md` (DG).
-- `spec/impl/` — chronological decision plans/logs to implement the spec. Also used for minor changes, implementation notes, and rollout plans. Written as a living log where new entries are prepended. **File names must be `YYYYMMDD_<topic_slug>.md` — date-prefixed and fully lowercase with underscores** (e.g., `20260216_rewrite_plan.md`).
+- `spec/impl/` — chronological implementation plans/logs. Used for decision records, implementation notes, rollout plans, and minor changes. Written as a living log where new entries are prepended. **File names must be `YYYYMMDD_<topic_slug>.md` — date-prefixed and fully lowercase with underscores** (e.g., `20260216_rewrite_plan.md`).
 
 **How to decide between `feature/` and `feature/spoke/`:**
 - If the feature belongs to a specific user group in the MANIFESTO (DE/DA/DG) → `feature/spoke/`
@@ -46,8 +54,12 @@ spec/
 
 Always read these before writing:
 - `spec/MANIFESTO_en.md` — canonical user-group taxonomy and naming (highest authority)
-- `spec/ARCHITECTURE.md` — component layout (UI, API, Backend/Pipeline, DataHub), tech stack
-- `spec/USE_CASE_en.md` — reference scenarios by user group
+- `spec/ARCHITECTURE.md` — components, tech stack, data flows, feature-to-architecture mapping, shared services (Ontology Builder, Quality Score Engine), deployment
+
+Additionally, read these when relevant to the topic:
+- `spec/DATAHUB_INTEGRATION.md` — when the feature involves DataHub read/write/event patterns
+- `spec/API_DESIGN_PRINCIPLE_en.md` — when designing API endpoints
+- `spec/USE_CASE_en.md` — for use case context (UC1–UC8)
 
 If writing about a specific feature, also check for an existing `spec/feature/<FEATURE>.md` or `spec/feature/spoke/<FEATURE>.md` to extend rather than create a duplicate.
 
@@ -76,6 +88,9 @@ Use the template for the chosen destination. Follow these style rules for both:
 - Feature names must match the MANIFESTO: **Deep Technical Spec Ingestion**, **Online Data Validator**, **Automated Documentation Suggestions**, **Natural Language Search**, **Text-to-SQL Optimized Metadata**, **Enterprise Metrics Time-Series Monitoring**, **Multi-Perspective Data Overview**
 - Product name is always `DataSpoke` (no space)
 - API URIs follow the pattern: `/api/v1/spoke/[de|da|dg]/...`
+- For DataHub integration details, reference `DATAHUB_INTEGRATION.md` rather than duplicating SDK patterns or aspect catalogs
+- For API convention details, reference `API_DESIGN_PRINCIPLE_en.md` rather than restating URI/response format rules
+- When referencing architecture-level concepts (shared services, data flows, tech stack), align with `ARCHITECTURE.md`
 
 ---
 
