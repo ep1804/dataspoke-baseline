@@ -95,7 +95,8 @@ spec/
 ├── MANIFESTO_en.md / MANIFESTO_kr.md          ← Highest authority. Never modify.
 ├── ARCHITECTURE.md                             ← System-wide architecture overview.
 ├── AI_SCAFFOLD.md                              ← Claude Code scaffold: Goal 2 of the project.
-├── USE_CASE_en.md                                 ← Conceptual scenarios (vision/ideation).
+├── USE_CASE_en.md / _kr.md                     ← Conceptual scenarios (vision/ideation).
+├── DATAHUB_INTEGRATION.md                      ← DataHub SDK patterns, aspect catalog, error handling.
 ├── API_DESIGN_PRINCIPLE_en.md / _kr.md         ← REST API conventions. Apply to all APIs.
 ├── feature/                                    ← Deep-dive specs for COMMON (cross-cutting) features.
 │   │                                             Timeless reference format. No dates/logs.
@@ -110,7 +111,8 @@ spec/
 
 - `spec/MANIFESTO_en.md` / `spec/MANIFESTO_kr.md` — product philosophy, user-group taxonomy (DE/DA/DG)
 - `spec/ARCHITECTURE.md` — system architecture, 4 components (UI, API, Backend/Pipeline, DataHub), deployment
-- `spec/USE_CASE_en.md` — conceptual scenarios organized by user group (vision/ideation)
+- `spec/USE_CASE_en.md` / `spec/USE_CASE_kr.md` — conceptual scenarios organized by user group (vision/ideation)
+- `spec/DATAHUB_INTEGRATION.md` — DataHub SDK patterns (read/write/event), aspect catalog, GraphQL usage, error handling conventions. **Reference this when implementing any DataHub interaction.**
 - `spec/feature/` — specs for common/cross-cutting features (e.g. API design, dev env, shared infrastructure)
 - `spec/feature/spoke/` — specs for user-group-specific features (DE: Ingestion, Validator, Doc Suggestions; DA: NL Search, Text-to-SQL Metadata; DG: Metrics Dashboard, Multi-Perspective Overview)
 - `spec/plan/` — chronological decision plans/logs (also used for minor changes)

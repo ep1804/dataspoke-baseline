@@ -417,32 +417,29 @@ AI Agent or User: data to validate
 
 ### 4. DataHub Integration Patterns
 
-#### Pattern A: Read-Only Queries
-```python
-from datahub.ingestion.graph.client import DatahubClientConfig, DataHubGraph
+> **Full reference**: See [`spec/DATAHUB_INTEGRATION.md`](DATAHUB_INTEGRATION.md) for the complete aspect catalog, SDK patterns, GraphQL usage, event subscription, and error handling conventions.
 
-graph = DataHubGraph(DatahubClientConfig(server="http://datahub-gms:8080"))
-dataset = graph.get_dataset(urn="urn:li:dataset:...")
-```
+Three communication channels:
 
-#### Pattern B: Write Metadata
+| Channel | SDK Entry Point | Direction | Use Case |
+|---------|----------------|-----------|----------|
+| **Read** (REST) | `DataHubGraph.get_aspect()` / `get_timeseries_values()` | DataHub → DataSpoke | Query metadata aspects |
+| **Read** (GraphQL) | `DataHubGraph.execute_graphql()` | DataHub → DataSpoke | Downstream lineage, cross-entity search |
+| **Write** (REST) | `DatahubRestEmitter.emit_mcp()` | DataSpoke → DataHub | Persist enriched metadata |
+| **Events** (Kafka) | `Consumer` on MCL topics | DataHub → DataSpoke | React to metadata changes in real time |
+
 ```python
+# Read — query a regular aspect
+from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
+
+graph = DataHubGraph(DatahubClientConfig(server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN))
+aspect = graph.get_aspect(dataset_urn, DatasetPropertiesClass)
+
+# Write — emit a metadata change proposal
 from datahub.emitter.rest_emitter import DatahubRestEmitter
 
-emitter = DatahubRestEmitter("http://datahub-gms:8080")
-emitter.emit_mcp(metadata_change_proposal)
-```
-
-#### Pattern C: Event Subscription
-```python
-from kafka import KafkaConsumer
-
-consumer = KafkaConsumer(
-    'MetadataChangeEvent_v1',
-    bootstrap_servers='datahub-broker:9092'
-)
-for message in consumer:
-    handle_metadata_change(message.value)
+emitter = DatahubRestEmitter(gms_server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN)
+emitter.emit_mcp(MetadataChangeProposalWrapper(entityUrn=dataset_urn, aspect=...))
 ```
 
 ---
