@@ -12,7 +12,7 @@ spec/
 ├── MANIFESTO_en.md     ← Highest authority. Canonical product identity,
 ├── MANIFESTO_kr.md       user-group taxonomy (DE/DA/DG), naming. Never modify.
 ├── ARCHITECTURE.md     ← Top-level system architecture overview.
-├── USE_CASE.md         ← Top-level conceptual scenarios.
+├── USE_CASE_en.md         ← Top-level conceptual scenarios.
 │
 ├── feature/            ← Deep-dive specs for COMMON (cross-cutting) features.
 │   │                     Clean, timeless reference format.
@@ -47,7 +47,7 @@ spec/
 Always read these before writing:
 - `spec/MANIFESTO_en.md` — canonical user-group taxonomy and naming (highest authority)
 - `spec/ARCHITECTURE.md` — component layout (UI, API, Backend/Pipeline, DataHub), tech stack
-- `spec/USE_CASE.md` — reference scenarios by user group
+- `spec/USE_CASE_en.md` — reference scenarios by user group
 
 If writing about a specific feature, also check for an existing `spec/feature/<FEATURE>.md` or `spec/feature/spoke/<FEATURE>.md` to extend rather than create a duplicate.
 
@@ -152,5 +152,5 @@ Each entry has a date header and structured content.
 ## Step 4 — Update cross-references if needed
 
 - If a new `spec/feature/` or `spec/feature/spoke/` document introduces components or data models that belong in the architecture overview, update `spec/ARCHITECTURE.md`.
-- If the document changes how a use case is realized, note it in `spec/USE_CASE.md` as a cross-reference.
+- If the document changes how a use case is realized, note it in `spec/USE_CASE_en.md` as a cross-reference.
 - Never modify `spec/MANIFESTO_en.md` or `spec/MANIFESTO_kr.md`.

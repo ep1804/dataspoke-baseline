@@ -2,7 +2,7 @@
 
 AI Data Catalog Starter: Productized Scaffold to Generate Custom Solutions
 
-![DataSpoke MANIFESTO](../assets/MANIFESTO_image.jpg)
+![DataSpoke Concept](../assets/dataspoke_concept.jpg)
 
 ---
 
