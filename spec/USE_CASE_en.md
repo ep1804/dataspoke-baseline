@@ -433,6 +433,51 @@ Hypothesis: Weekend order backlog creates Monday morning batch delay
 Auto-adjusted threshold: Monday 7 AM: 790K ±5% (from 900K)
 ```
 
+#### DataHub Integration Points
+
+The Predictive SLA engine is a **read** consumer. It queries timeseries profiles and lineage to detect anomalies before SLA breaches:
+
+| Monitoring Step | DataHub Aspect | REST API Path | What It Returns |
+|----------------|---------------|---------------|----------------|
+| Volume tracking | `datasetProfile` (timeseries) | `POST /aspects?action=getTimeseriesAspectValues` | `rowCount` over time — basis for 3σ deviation |
+| Freshness check | `operation` (timeseries) | `POST /aspects?action=getTimeseriesAspectValues` | `lastUpdatedTimestamp` — expected vs actual |
+| Upstream dependency | `upstreamLineage` | `GET /aspects/{urn}?aspect=upstreamLineage` | Upstream dataset URNs for root cause traversal |
+| Downstream impact | — | GraphQL: `searchAcrossLineage` | Dashboards/consumers affected by SLA miss |
+
+```python
+from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
+from datahub.emitter.mce_builder import make_dataset_urn
+from datahub.metadata.schema_classes import (
+    DatasetProfileClass,
+    UpstreamLineageClass,
+)
+
+graph = DataHubGraph(DatahubClientConfig(server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN))
+dataset_urn = make_dataset_urn(platform="oracle", name="orders.daily_fulfillment_summary", env="PROD")
+
+# Profile history — rowCount over time for 3σ anomaly detection
+# REST: POST /aspects?action=getTimeseriesAspectValues
+profiles = graph.get_timeseries_values(
+    dataset_urn, DatasetProfileClass, filter={}, limit=30,
+)
+
+# Upstream lineage — traverse dependencies for root cause analysis
+# REST: GET /aspects/{urn}?aspect=upstreamLineage
+upstream = graph.get_aspect(dataset_urn, UpstreamLineageClass)
+```
+
+> **Key point**: DataHub stores raw profile history and lineage graphs. DataSpoke adds statistical modeling, SLA definitions, and predictive alerting on top.
+
+#### DataSpoke Custom Implementation
+
+| Component | Responsibility | Why DataHub Can't Do This |
+|-----------|---------------|--------------------------|
+| **Prophet/Isolation Forest Engine** | Time-series anomaly detection on `rowCount` history | DataHub stores profiles, no statistical modeling |
+| **SLA Configuration** | Define per-dataset SLA targets (e.g., 9 AM deadline) | DataHub has no SLA concept |
+| **Upstream Root Cause Analyzer** | Traverse lineage, check each upstream's health, identify bottleneck | DataHub provides lineage graph but no health assessment |
+| **Predictive Alert System** | Generate pre-breach warnings with confidence scores | DataHub has no alerting/prediction engine |
+| **Threshold Auto-Adjustment** | Learn day-of-week patterns, auto-update baselines | DataHub stores raw data, no pattern learning |
+
 #### Outcome
 
 | Metric | Traditional Monitoring | DataSpoke Predictive |
@@ -537,6 +582,60 @@ Impact: 18 pipelines need update | Effort: Medium (schema additive)
 
 **Phase 3: Weekly Consistency Check** — DataSpoke scans for rule violations. Example: a new pipeline joins on `products.digital_catalog` instead of `catalog.product_master`, excluding 60% of print-only titles from recommendations. Auto-correction proposed with 92% confidence.
 
+#### DataHub Integration Points
+
+Doc Suggestions is a **read + write** consumer. It reads schemas and properties for clustering analysis, then writes deprecation markers and tags back to DataHub:
+
+| Analysis Step | DataHub Aspect | REST API Path | What It Returns / Stores |
+|--------------|---------------|---------------|--------------------------|
+| Schema similarity | `schemaMetadata` | `GET /aspects/{urn}?aspect=schemaMetadata` | Column names, types — input to embedding similarity |
+| Description analysis | `datasetProperties` | `GET /aspects/{urn}?aspect=datasetProperties` | Descriptions for semantic matching |
+| Shared consumers | `upstreamLineage` | GraphQL: `searchAcrossLineage` | Downstream overlap across candidate tables |
+| Mark deprecated | `deprecation` | `POST /openapi/v3/entity/dataset` | `deprecated=true`, `note`, `replacement` URN |
+| Tag source system | `globalTags` | `POST /openapi/v3/entity/dataset` | `urn:li:tag:source_imazon`, `urn:li:tag:source_ebooknow` |
+
+```python
+from datahub.emitter.rest_emitter import DatahubRestEmitter
+from datahub.emitter.mcp import MetadataChangeProposalWrapper
+from datahub.emitter.mce_builder import make_dataset_urn
+from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
+from datahub.metadata.schema_classes import (
+    DeprecationClass,
+    SchemaMetadataClass,
+)
+
+graph = DataHubGraph(DatahubClientConfig(server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN))
+emitter = DatahubRestEmitter(gms_server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN)
+
+# Read schema — column names and types for embedding-based similarity
+# REST: GET /aspects/{urn}?aspect=schemaMetadata
+imazon_urn = make_dataset_urn(platform="oracle", name="catalog.title_master", env="PROD")
+schema = graph.get_aspect(imazon_urn, SchemaMetadataClass)
+
+# Mark deprecated — old eBookNow table replaced by canonical entity
+# REST: POST /openapi/v3/entity/dataset  (aspect: deprecation)
+ebooknow_urn = make_dataset_urn(platform="oracle", name="products.digital_catalog", env="PROD")
+emitter.emit_mcp(MetadataChangeProposalWrapper(
+    entityUrn=ebooknow_urn,
+    aspect=DeprecationClass(
+        deprecated=True,
+        note="Migrated to catalog.product_master per ontology reconciliation",
+        replacement=make_dataset_urn(platform="oracle", name="catalog.product_master", env="PROD"),
+    ),
+))
+```
+
+> **Key point**: DataHub persists schema metadata and deprecation markers. DataSpoke adds embedding-based clustering, ontology proposal logic, and consistency rule enforcement.
+
+#### DataSpoke Custom Implementation
+
+| Component | Responsibility | Why DataHub Can't Do This |
+|-----------|---------------|--------------------------|
+| **Embedding-Based Clustering** | Generate column/description embeddings, compute cosine similarity matrices via Qdrant | DataHub has keyword search only, no vector similarity |
+| **Ontology Proposal Engine** | Propose canonical entities with merged schemas and table role assignments | DataHub stores metadata but has no schema merging logic |
+| **Consistency Rule Engine** | Define and enforce ontology rules (R1–R4), scan for violations weekly | DataHub has no rule definition or violation scanning |
+| **Auto-Correction Proposer** | Suggest SQL join replacements with confidence scores | DataHub has no code-level analysis capability |
+
 #### Outcome
 
 | Metric | Manual Reconciliation | DataSpoke Doc Suggestions |
@@ -610,6 +709,66 @@ Summary:
 ```
 
 **Follow-up:** "Which tables lack automated right-to-deletion?" → DataSpoke identifies `customers.eu_profiles` (requires manual SQL) and `reviews.eu_book_reviews_archive` (cold storage, 48hr restore). Recommends automated deletion jobs.
+
+#### DataHub Integration Points
+
+NL Search is a **read** consumer. It queries multiple DataHub aspects to build the vector search index and enrich query results:
+
+| Search Step | DataHub Aspect | REST API Path | What It Returns |
+|------------|---------------|---------------|----------------|
+| Embedding source | `datasetProperties` | `GET /aspects/{urn}?aspect=datasetProperties` | Descriptions — vectorized into Qdrant |
+| Column-level PII detection | `schemaMetadata` | `GET /aspects/{urn}?aspect=schemaMetadata` | Column names (`email`, `full_name`, etc.) |
+| PII / GDPR tags | `globalTags` | `GET /aspects/{urn}?aspect=globalTags` | `urn:li:tag:PII`, `urn:li:tag:GDPR` |
+| Marketing lineage | `upstreamLineage` | GraphQL: `searchAcrossLineage` | Downstream consumers in marketing domain |
+| Ownership | `ownership` | `GET /aspects/{urn}?aspect=ownership` | Data steward for compliance contact |
+| Usage frequency | `datasetUsageStatistics` (timeseries) | `POST /aspects?action=getTimeseriesAspectValues` | `uniqueUserCount`, `totalSqlQueries` |
+
+```python
+from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
+from datahub.emitter.mce_builder import make_dataset_urn
+from datahub.metadata.schema_classes import (
+    DatasetUsageStatisticsClass,
+    GlobalTagsClass,
+)
+
+graph = DataHubGraph(DatahubClientConfig(server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN))
+dataset_urn = make_dataset_urn(platform="oracle", name="customers.eu_profiles", env="PROD")
+
+# PII tags — check for GDPR-relevant classification tags
+# REST: GET /aspects/{urn}?aspect=globalTags
+tags = graph.get_aspect(dataset_urn, GlobalTagsClass)
+
+# Downstream lineage — find marketing consumers via GraphQL
+# GraphQL: searchAcrossLineage(input: {urn, direction: DOWNSTREAM, types: [DATASET]})
+downstream = graph.execute_graphql("""
+    query {
+        searchAcrossLineage(input: {
+            urn: "%s",
+            direction: DOWNSTREAM,
+            types: [DATASET],
+            query: "*marketing*"
+        }) { searchResults { entity { urn } } }
+    }
+""" % dataset_urn)
+
+# Usage statistics — prioritize high-traffic tables in search results
+# REST: POST /aspects?action=getTimeseriesAspectValues
+usage = graph.get_timeseries_values(
+    dataset_urn, DatasetUsageStatisticsClass, filter={}, limit=30,
+)
+```
+
+> **Key point**: DataHub provides keyword search and raw metadata. DataSpoke adds natural language parsing, vector similarity, PII classification logic, and conversational refinement.
+
+#### DataSpoke Custom Implementation
+
+| Component | Responsibility | Why DataHub Can't Do This |
+|-----------|---------------|--------------------------|
+| **NL Query Parser** | Parse natural language into structured intent (entity type, filters, compliance context) | DataHub search is keyword-based, no intent parsing |
+| **Vector Search (Qdrant)** | Hybrid search: vector similarity + graph traversal for multi-dimensional queries | DataHub has Elasticsearch keyword search only |
+| **PII Classification Engine** | Detect PII fields by column name patterns + tag presence, classify into tiers | DataHub stores tags but has no classification logic |
+| **Compliance Report Generator** | Auto-generate GDPR audit reports with lineage diagrams and gap analysis | DataHub provides raw metadata, no report generation |
+| **Conversational Refinement** | Support follow-up queries in context ("Which tables lack...") | DataHub search is stateless, no conversation support |
 
 #### Outcome
 
@@ -698,6 +857,55 @@ Metrics:
 ```
 
 **Month 3 — Milestone:** Enterprise score reaches 77/100 (target: 70). All departments above minimum threshold. Documentation decay rate tracked at -2.1%/month (new tables created faster than documented). DataSpoke recommends mandatory documentation checklist for new table creation.
+
+#### DataHub Integration Points
+
+The Metrics Dashboard is a **read** consumer. It queries across all datasets to compute aggregate health scores:
+
+| Health Metric | DataHub Aspect | REST API Path | What It Returns |
+|--------------|---------------|---------------|----------------|
+| Description coverage | `datasetProperties` | `GET /aspects/{urn}?aspect=datasetProperties` | Presence/absence of `description` field |
+| Owner assignment | `ownership` | `GET /aspects/{urn}?aspect=ownership` | Owner URN list — empty = unassigned |
+| Column documentation | `schemaMetadata` | `GET /aspects/{urn}?aspect=schemaMetadata` | Per-column `description` — empty = undocumented |
+| Tag coverage | `globalTags` | `GET /aspects/{urn}?aspect=globalTags` | PII classification tags present or missing |
+| Usage popularity | `datasetUsageStatistics` (timeseries) | `POST /aspects?action=getTimeseriesAspectValues` | `uniqueUserCount` — prioritize high-usage gaps |
+| Entity enumeration | — | GraphQL: `scrollAcrossEntities` | List all datasets per domain/department |
+
+```python
+from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
+from datahub.emitter.mce_builder import make_dataset_urn
+from datahub.metadata.schema_classes import (
+    DatasetPropertiesClass,
+    OwnershipClass,
+)
+
+graph = DataHubGraph(DatahubClientConfig(server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN))
+
+# Enumerate all datasets — iterate for health scoring
+# GraphQL: scrollAcrossEntities or REST filter
+dataset_urns = list(graph.get_urns_by_filter(entity_types=["dataset"]))
+
+for dataset_urn in dataset_urns:
+    # Ownership — check if owner is assigned
+    # REST: GET /aspects/{urn}?aspect=ownership
+    ownership = graph.get_aspect(dataset_urn, OwnershipClass)
+
+    # Description — check documentation coverage
+    # REST: GET /aspects/{urn}?aspect=datasetProperties
+    properties = graph.get_aspect(dataset_urn, DatasetPropertiesClass)
+```
+
+> **Key point**: DataHub stores per-dataset metadata aspects. DataSpoke aggregates them into cross-dataset health scores, department rankings, and trend analysis.
+
+#### DataSpoke Custom Implementation
+
+| Component | Responsibility | Why DataHub Can't Do This |
+|-----------|---------------|--------------------------|
+| **Health Score Aggregator** | Compute 0–100 score from description, ownership, tags, column docs, freshness | DataHub has no cross-aspect scoring system |
+| **Department Mapper** | Map datasets to departments via ownership → HR API lookup | DataHub stores ownership URNs but has no org-structure awareness |
+| **Issue Tracker** | Detect, prioritize, and track metadata gaps (critical/high/medium) in PostgreSQL | DataHub has no issue lifecycle management |
+| **Notification Engine** | Email dataset owners with action items, estimated fix time, projected score impact | DataHub has no outbound notification system |
+| **Trend Analysis** | Track health scores over time, compute decay rates, forecast improvement | DataHub stores point-in-time aspects, no time-series aggregation of metadata quality |
 
 #### Outcome
 

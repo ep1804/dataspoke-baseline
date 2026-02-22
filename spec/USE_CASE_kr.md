@@ -164,35 +164,53 @@ Downstream: recommendations.book_features, reports.catalog_summary
 
 #### DataHub 연동 포인트
 
-모든 보강된 메타데이터는 `DatahubRestEmitter` → `POST /openapi/entities/v1/`을 통해 DataHub에 저장됩니다. 각 카테고리는 MCP로 발행되는 DataHub aspect에 매핑됩니다:
+모든 보강된 메타데이터는 `DatahubRestEmitter`를 통해 DataHub에 저장되며, 내부적으로 OpenAPI 엔드포인트 `POST /openapi/v3/entity/dataset`을 호출합니다. 각 카테고리는 MCP로 발행되는 DataHub aspect에 매핑됩니다:
 
-| 인제스천 단계 | DataHub Aspect | 저장 내용 |
-|-------------|---------------|----------|
-| 기본 스키마 | `schemaMetadata` | 컬럼명, 타입, 키 |
-| 비즈니스 설명 | `datasetProperties` | Confluence에서 가져온 `description` |
-| PII / 편집 태그 | `globalTags` | `urn:li:tag:PII`, `urn:li:tag:Editorial_Reviewed` |
-| 출판사 분류 | `datasetProperties.customProperties` | `publisher_domain`, `genre_taxonomy`, `content_rating` |
-| 소유권 | `ownership` | Owner URN + `BUSINESS_OWNER` 타입 |
-| PL/SQL 리니지 | `upstreamLineage` | 소스 → 타겟 데이터셋 URN 엣지 |
-| 품질 규칙 | `assertionInfo` + `assertionRunEvent` | CHECK 제약조건을 assertion으로 변환 |
+| 인제스천 단계 | DataHub Aspect | REST API Path | 저장 내용 |
+|-------------|---------------|---------------|----------|
+| 기본 스키마 | `schemaMetadata` | `POST /openapi/v3/entity/dataset` | 컬럼명, 타입, 키 |
+| 비즈니스 설명 | `datasetProperties` | `POST /openapi/v3/entity/dataset` | Confluence에서 가져온 `description` |
+| PII / 편집 태그 | `globalTags` | `POST /openapi/v3/entity/dataset` | `urn:li:tag:PII`, `urn:li:tag:Editorial_Reviewed` |
+| 출판사 분류 | `datasetProperties.customProperties` | `POST /openapi/v3/entity/dataset` | `publisher_domain`, `genre_taxonomy`, `content_rating` |
+| 소유권 | `ownership` | `POST /openapi/v3/entity/dataset` | Owner URN + `BUSINESS_OWNER` 타입 |
+| PL/SQL 리니지 | `upstreamLineage` | `POST /openapi/v3/entity/dataset` | 소스 → 타겟 데이터셋 URN 엣지 |
+| 품질 규칙 | `assertionInfo` + `assertionRunEvent` | `POST /openapi/v3/entity/assertion` | CHECK 제약조건을 assertion으로 변환 |
 
 ```python
+from datahub.emitter.rest_emitter import DatahubRestEmitter
+from datahub.emitter.mcp import MetadataChangeProposalWrapper
+from datahub.emitter.mce_builder import make_dataset_urn
+from datahub.metadata.schema_classes import (
+    DatasetLineageTypeClass,
+    DatasetPropertiesClass,
+    UpstreamClass,
+    UpstreamLineageClass,
+)
+
 emitter = DatahubRestEmitter(gms_server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN)
 dataset_urn = make_dataset_urn(platform="oracle", name="catalog.title_master", env="PROD")
 
-# 설명 + 커스텀 속성
-emitter.emit_mcp(MetadataChangeProposalWrapper(entityUrn=dataset_urn, aspect=DatasetProperties(
-    description="모든 도서 타이틀의 마스터 카탈로그...",
-    customProperties={"genre_taxonomy": "4-level", "publisher_domain": "All imprints"}
-)))
+# 설명 + 커스텀 속성 — Confluence에서 가져온 비즈니스 컨텍스트
+# REST: POST /openapi/v3/entity/dataset  (aspect: datasetProperties)
+emitter.emit_mcp(MetadataChangeProposalWrapper(
+    entityUrn=dataset_urn,
+    aspect=DatasetPropertiesClass(
+        description="모든 도서 타이틀의 마스터 카탈로그...",
+        customProperties={"genre_taxonomy": "4-level", "publisher_domain": "All imprints"},
+    ),
+))
 
-# 스토어드 프로시저에서 추출한 리니지
-emitter.emit_mcp(MetadataChangeProposalWrapper(entityUrn=dataset_urn, aspect=UpstreamLineage(
-    upstreams=[Upstream(
-        dataset=make_dataset_urn(platform="oracle", name="publishers.feed_raw", env="PROD"),
-        type=DatasetLineageTypeClass.TRANSFORM
-    )]
-)))
+# 리니지 — PL/SQL 스토어드 프로시저에서 추출한 업스트림 테이블
+# REST: POST /openapi/v3/entity/dataset  (aspect: upstreamLineage)
+emitter.emit_mcp(MetadataChangeProposalWrapper(
+    entityUrn=dataset_urn,
+    aspect=UpstreamLineageClass(
+        upstreams=[UpstreamClass(
+            dataset=make_dataset_urn(platform="oracle", name="publishers.feed_raw", env="PROD"),
+            type=DatasetLineageTypeClass.TRANSFORMED,
+        )],
+    ),
+))
 ```
 
 > **핵심 포인트**: DataHub는 보강 로직을 제공하지 않습니다 — DataSpoke가 보낸 것만 저장합니다.
@@ -293,27 +311,42 @@ Author: AI Agent (claude-sonnet-4.5)
 
 Validator는 주로 **읽기** 소비자입니다. 여러 DataHub aspect를 조회하여 건강도 평가를 구성합니다:
 
-| 검증 단계 | DataHub Aspect (읽기) | 반환 내용 |
-|----------|---------------------|----------|
-| 시맨틱 탐색 | `datasetProperties` | 설명, 태그 — 의미적 의도 매칭 |
-| 품질 점수 | `datasetProfile` (시계열) | 행 수, null 비율 시계열 |
-| 신선도 | `operation` (시계열) | `lastUpdatedTimestamp` |
-| 다운스트림 수 | `upstreamLineage` (GraphQL) | 다운스트림 소비자 수 |
-| 폐기 여부 | `deprecation` | `deprecated` 플래그, 대체 URN |
-| 검증 이력 | `assertionRunEvent` (시계열) | 합격/실패 이력 |
-| 스키마 검증 | `schemaMetadata` | 컬럼명, 타입 (네이밍 검사용) |
+| 검증 단계 | DataHub Aspect | REST API Path | 반환 내용 |
+|----------|---------------|---------------|----------|
+| 시맨틱 탐색 | `datasetProperties` | `GET /aspects/{urn}?aspect=datasetProperties` | 설명, 태그 — 의미적 의도 매칭 |
+| 품질 점수 | `datasetProfile` (시계열) | `POST /aspects?action=getTimeseriesAspectValues` | 행 수, null 비율 시계열 |
+| 신선도 | `operation` (시계열) | `POST /aspects?action=getTimeseriesAspectValues` | `lastUpdatedTimestamp` |
+| 다운스트림 수 | `upstreamLineage` | GraphQL: `searchAcrossLineage` | 다운스트림 소비자 수 |
+| 폐기 여부 | `deprecation` | `GET /aspects/{urn}?aspect=deprecation` | `deprecated` 플래그, 대체 URN |
+| 검증 이력 | `assertionRunEvent` (시계열) | `POST /aspects?action=getTimeseriesAspectValues` | 합격/실패 이력 |
+| 스키마 검증 | `schemaMetadata` | `GET /aspects/{urn}?aspect=schemaMetadata` | 컬럼명, 타입 (네이밍 검사용) |
 
 ```python
+from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
+from datahub.emitter.mce_builder import make_dataset_urn
+from datahub.metadata.schema_classes import (
+    DatasetProfileClass,
+    OperationClass,
+    UpstreamLineageClass,
+)
+
 graph = DataHubGraph(DatahubClientConfig(server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN))
-dataset_urn = "urn:li:dataset:(urn:li:dataPlatform:oracle,reviews.user_ratings_legacy,PROD)"
+dataset_urn = make_dataset_urn(platform="oracle", name="reviews.user_ratings_legacy", env="PROD")
 
 # 프로필 이력 — 이상 탐지를 위한 null 비율 시계열
-profiles = graph.get_timeseries_values(dataset_urn, DatasetProfileClass, {}, limit=30)
+# REST: POST /aspects?action=getTimeseriesAspectValues
+profiles = graph.get_timeseries_values(
+    dataset_urn, DatasetProfileClass, filter={}, limit=30,
+)
 
 # 최근 작업 — 신선도 확인
-operations = graph.get_timeseries_values(dataset_urn, OperationClass, {}, limit=1)
+# REST: POST /aspects?action=getTimeseriesAspectValues
+operations = graph.get_timeseries_values(
+    dataset_urn, OperationClass, filter={}, limit=1,
+)
 
 # 업스트림 리니지 — 의존성 건강 여부
+# REST: GET /aspects/{urn}?aspect=upstreamLineage
 upstream = graph.get_aspect(dataset_urn, UpstreamLineageClass)
 ```
 
@@ -399,6 +432,51 @@ DataSpoke 인사이트: orders.daily_fulfillment_summary
 가설: 주말 주문 백로그가 월요일 아침 배치 지연 발생
 자동 조정 임계값: 월요일 오전 7시: 790K ±5% (기존 900K에서 변경)
 ```
+
+#### DataHub 연동 포인트
+
+Predictive SLA 엔진은 **읽기** 소비자입니다. 시계열 프로필과 리니지를 조회하여 SLA 위반 전에 이상을 감지합니다:
+
+| 모니터링 단계 | DataHub Aspect | REST API Path | 반환 내용 |
+|-------------|---------------|---------------|----------|
+| 볼륨 추적 | `datasetProfile` (시계열) | `POST /aspects?action=getTimeseriesAspectValues` | 시간별 `rowCount` — 3σ 편차의 기초 |
+| 신선도 확인 | `operation` (시계열) | `POST /aspects?action=getTimeseriesAspectValues` | `lastUpdatedTimestamp` — 예상 vs 실제 |
+| 업스트림 의존성 | `upstreamLineage` | `GET /aspects/{urn}?aspect=upstreamLineage` | 근본 원인 추적을 위한 업스트림 데이터셋 URN |
+| 다운스트림 영향 | — | GraphQL: `searchAcrossLineage` | SLA 위반 시 영향받는 대시보드/소비자 |
+
+```python
+from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
+from datahub.emitter.mce_builder import make_dataset_urn
+from datahub.metadata.schema_classes import (
+    DatasetProfileClass,
+    UpstreamLineageClass,
+)
+
+graph = DataHubGraph(DatahubClientConfig(server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN))
+dataset_urn = make_dataset_urn(platform="oracle", name="orders.daily_fulfillment_summary", env="PROD")
+
+# 프로필 이력 — 3σ 이상 탐지를 위한 시간별 rowCount
+# REST: POST /aspects?action=getTimeseriesAspectValues
+profiles = graph.get_timeseries_values(
+    dataset_urn, DatasetProfileClass, filter={}, limit=30,
+)
+
+# 업스트림 리니지 — 근본 원인 분석을 위한 의존성 추적
+# REST: GET /aspects/{urn}?aspect=upstreamLineage
+upstream = graph.get_aspect(dataset_urn, UpstreamLineageClass)
+```
+
+> **핵심 포인트**: DataHub는 원시 프로필 이력과 리니지 그래프를 저장합니다. DataSpoke가 그 위에 통계 모델링, SLA 정의, 예측 알림을 추가합니다.
+
+#### DataSpoke 커스텀 구현
+
+| 컴포넌트 | 책임 | DataHub가 할 수 없는 이유 |
+|---------|------|------------------------|
+| **Prophet/Isolation Forest 엔진** | `rowCount` 이력에 대한 시계열 이상 탐지 | DataHub는 프로필을 저장하지만 통계 모델링 없음 |
+| **SLA 설정** | 데이터셋별 SLA 목표 정의 (예: 오전 9시 마감) | DataHub에는 SLA 개념 없음 |
+| **업스트림 근본 원인 분석기** | 리니지 추적, 각 업스트림 건강도 확인, 병목 지점 식별 | DataHub는 리니지 그래프를 제공하지만 건강도 평가 없음 |
+| **예측 알림 시스템** | 신뢰도 점수가 포함된 위반 전 경고 생성 | DataHub에는 알림/예측 엔진 없음 |
+| **임계값 자동 조정** | 요일별 패턴 학습, 기준선 자동 업데이트 | DataHub는 원시 데이터를 저장하지만 패턴 학습 없음 |
 
 #### 결과
 
@@ -504,6 +582,60 @@ DataSpoke Doc Suggestions — 시맨틱 클러스터링:
 
 **3단계: 주간 일관성 검사** — DataSpoke가 규칙 위반을 스캔합니다. 예시: 새 파이프라인이 `catalog.product_master` 대신 `products.digital_catalog`로 조인하여 인쇄 전용 타이틀의 60%가 추천에서 제외됨. 92% 신뢰도로 자동 수정 제안.
 
+#### DataHub 연동 포인트
+
+Doc Suggestions는 **읽기 + 쓰기** 소비자입니다. 클러스터링 분석을 위해 스키마와 속성을 읽고, 폐기 마커와 태그를 DataHub에 다시 기록합니다:
+
+| 분석 단계 | DataHub Aspect | REST API Path | 반환/저장 내용 |
+|----------|---------------|---------------|--------------|
+| 스키마 유사도 | `schemaMetadata` | `GET /aspects/{urn}?aspect=schemaMetadata` | 컬럼명, 타입 — 임베딩 유사도 입력 |
+| 설명 분석 | `datasetProperties` | `GET /aspects/{urn}?aspect=datasetProperties` | 시맨틱 매칭을 위한 설명 |
+| 공유 소비자 | `upstreamLineage` | GraphQL: `searchAcrossLineage` | 후보 테이블 간 다운스트림 중복 |
+| 폐기 표시 | `deprecation` | `POST /openapi/v3/entity/dataset` | `deprecated=true`, `note`, `replacement` URN |
+| 소스 시스템 태깅 | `globalTags` | `POST /openapi/v3/entity/dataset` | `urn:li:tag:source_imazon`, `urn:li:tag:source_ebooknow` |
+
+```python
+from datahub.emitter.rest_emitter import DatahubRestEmitter
+from datahub.emitter.mcp import MetadataChangeProposalWrapper
+from datahub.emitter.mce_builder import make_dataset_urn
+from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
+from datahub.metadata.schema_classes import (
+    DeprecationClass,
+    SchemaMetadataClass,
+)
+
+graph = DataHubGraph(DatahubClientConfig(server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN))
+emitter = DatahubRestEmitter(gms_server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN)
+
+# 스키마 읽기 — 임베딩 기반 유사도를 위한 컬럼명과 타입
+# REST: GET /aspects/{urn}?aspect=schemaMetadata
+imazon_urn = make_dataset_urn(platform="oracle", name="catalog.title_master", env="PROD")
+schema = graph.get_aspect(imazon_urn, SchemaMetadataClass)
+
+# 폐기 표시 — 정규 엔티티로 대체된 eBookNow 테이블
+# REST: POST /openapi/v3/entity/dataset  (aspect: deprecation)
+ebooknow_urn = make_dataset_urn(platform="oracle", name="products.digital_catalog", env="PROD")
+emitter.emit_mcp(MetadataChangeProposalWrapper(
+    entityUrn=ebooknow_urn,
+    aspect=DeprecationClass(
+        deprecated=True,
+        note="온톨로지 통합에 따라 catalog.product_master로 마이그레이션됨",
+        replacement=make_dataset_urn(platform="oracle", name="catalog.product_master", env="PROD"),
+    ),
+))
+```
+
+> **핵심 포인트**: DataHub는 스키마 메타데이터와 폐기 마커를 저장합니다. DataSpoke가 임베딩 기반 클러스터링, 온톨로지 제안 로직, 일관성 규칙 강제를 추가합니다.
+
+#### DataSpoke 커스텀 구현
+
+| 컴포넌트 | 책임 | DataHub가 할 수 없는 이유 |
+|---------|------|------------------------|
+| **임베딩 기반 클러스터링** | 컬럼/설명 임베딩 생성, Qdrant를 통한 코사인 유사도 행렬 계산 | DataHub는 키워드 검색만 제공, 벡터 유사도 없음 |
+| **온톨로지 제안 엔진** | 병합 스키마와 테이블 역할 할당이 포함된 정규 엔티티 제안 | DataHub는 메타데이터를 저장하지만 스키마 병합 로직 없음 |
+| **일관성 규칙 엔진** | 온톨로지 규칙(R1–R4) 정의 및 주간 위반 스캔 강제 | DataHub에는 규칙 정의나 위반 스캔 없음 |
+| **자동 수정 제안기** | 신뢰도 점수가 포함된 SQL 조인 대체 제안 | DataHub에는 코드 수준 분석 기능 없음 |
+
 #### 결과
 
 | 지표 | 수동 통합 | DataSpoke Doc Suggestions |
@@ -577,6 +709,66 @@ Imazon 법무팀이 GDPR 감사를 준비하며 다음을 요청합니다: "마�
 ```
 
 **후속 질문:** "자동 삭제권이 없는 테이블은?" → DataSpoke가 `customers.eu_profiles` (수동 SQL 필요)와 `reviews.eu_book_reviews_archive` (콜드 스토리지, 48시간 복원)를 식별합니다. 자동 삭제 작업을 권장합니다.
+
+#### DataHub 연동 포인트
+
+NL Search는 **읽기** 소비자입니다. 벡터 검색 인덱스를 구축하고 쿼리 결과를 보강하기 위해 여러 DataHub aspect를 조회합니다:
+
+| 검색 단계 | DataHub Aspect | REST API Path | 반환 내용 |
+|----------|---------------|---------------|----------|
+| 임베딩 소스 | `datasetProperties` | `GET /aspects/{urn}?aspect=datasetProperties` | 설명 — Qdrant에 벡터화 |
+| 컬럼 수준 PII 탐지 | `schemaMetadata` | `GET /aspects/{urn}?aspect=schemaMetadata` | 컬럼명 (`email`, `full_name` 등) |
+| PII / GDPR 태그 | `globalTags` | `GET /aspects/{urn}?aspect=globalTags` | `urn:li:tag:PII`, `urn:li:tag:GDPR` |
+| 마케팅 리니지 | `upstreamLineage` | GraphQL: `searchAcrossLineage` | 마케팅 도메인의 다운스트림 소비자 |
+| 소유권 | `ownership` | `GET /aspects/{urn}?aspect=ownership` | 컴플라이언스 담당자를 위한 데이터 스튜어드 |
+| 사용 빈도 | `datasetUsageStatistics` (시계열) | `POST /aspects?action=getTimeseriesAspectValues` | `uniqueUserCount`, `totalSqlQueries` |
+
+```python
+from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
+from datahub.emitter.mce_builder import make_dataset_urn
+from datahub.metadata.schema_classes import (
+    DatasetUsageStatisticsClass,
+    GlobalTagsClass,
+)
+
+graph = DataHubGraph(DatahubClientConfig(server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN))
+dataset_urn = make_dataset_urn(platform="oracle", name="customers.eu_profiles", env="PROD")
+
+# PII 태그 — GDPR 관련 분류 태그 확인
+# REST: GET /aspects/{urn}?aspect=globalTags
+tags = graph.get_aspect(dataset_urn, GlobalTagsClass)
+
+# 다운스트림 리니지 — GraphQL을 통한 마케팅 소비자 탐색
+# GraphQL: searchAcrossLineage(input: {urn, direction: DOWNSTREAM, types: [DATASET]})
+downstream = graph.execute_graphql("""
+    query {
+        searchAcrossLineage(input: {
+            urn: "%s",
+            direction: DOWNSTREAM,
+            types: [DATASET],
+            query: "*marketing*"
+        }) { searchResults { entity { urn } } }
+    }
+""" % dataset_urn)
+
+# 사용 통계 — 검색 결과에서 고트래픽 테이블 우선 표시
+# REST: POST /aspects?action=getTimeseriesAspectValues
+usage = graph.get_timeseries_values(
+    dataset_urn, DatasetUsageStatisticsClass, filter={}, limit=30,
+)
+```
+
+> **핵심 포인트**: DataHub는 키워드 검색과 원시 메타데이터를 제공합니다. DataSpoke가 자연어 파싱, 벡터 유사도, PII 분류 로직, 대화형 정제를 추가합니다.
+
+#### DataSpoke 커스텀 구현
+
+| 컴포넌트 | 책임 | DataHub가 할 수 없는 이유 |
+|---------|------|------------------------|
+| **NL 쿼리 파서** | 자연어를 구조화된 의도(엔티티 타입, 필터, 컴플라이언스 컨텍스트)로 파싱 | DataHub 검색은 키워드 기반, 의도 파싱 없음 |
+| **벡터 검색 (Qdrant)** | 하이브리드 검색: 다차원 쿼리를 위한 벡터 유사도 + 그래프 순회 | DataHub는 Elasticsearch 키워드 검색만 제공 |
+| **PII 분류 엔진** | 컬럼명 패턴 + 태그 존재로 PII 필드 탐지, 등급별 분류 | DataHub는 태그를 저장하지만 분류 로직 없음 |
+| **컴플라이언스 보고서 생성기** | 리니지 다이어그램과 갭 분석이 포함된 GDPR 감사 보고서 자동 생성 | DataHub는 원시 메타데이터를 제공하지만 보고서 생성 없음 |
+| **대화형 정제** | 맥락 내 후속 질문 지원 ("어떤 테이블이 부족한지...") | DataHub 검색은 무상태, 대화 지원 없음 |
 
 #### 결과
 
@@ -665,6 +857,55 @@ Critical (12 데이터셋):
 ```
 
 **3개월차 — 마일스톤:** 전사 점수 77/100 도달 (목표: 70). 모든 부서가 최소 임계값 초과. 문서화 감쇠율 -2.1%/월 추적 (새 테이블 생성이 문서화보다 빠름). DataSpoke가 새 테이블 생성 시 필수 문서화 체크리스트를 권장합니다.
+
+#### DataHub 연동 포인트
+
+메트릭 대시보드는 **읽기** 소비자입니다. 모든 데이터셋을 조회하여 집계 건강도 점수를 계산합니다:
+
+| 건강도 지표 | DataHub Aspect | REST API Path | 반환 내용 |
+|-----------|---------------|---------------|----------|
+| 설명 커버리지 | `datasetProperties` | `GET /aspects/{urn}?aspect=datasetProperties` | `description` 필드 존재/부재 |
+| 소유자 할당 | `ownership` | `GET /aspects/{urn}?aspect=ownership` | Owner URN 목록 — 비어있으면 미할당 |
+| 컬럼 문서화 | `schemaMetadata` | `GET /aspects/{urn}?aspect=schemaMetadata` | 컬럼별 `description` — 비어있으면 미문서화 |
+| 태그 커버리지 | `globalTags` | `GET /aspects/{urn}?aspect=globalTags` | PII 분류 태그 존재 또는 누락 |
+| 사용 인기도 | `datasetUsageStatistics` (시계열) | `POST /aspects?action=getTimeseriesAspectValues` | `uniqueUserCount` — 사용량 높은 격차 우선 처리 |
+| 엔티티 열거 | — | GraphQL: `scrollAcrossEntities` | 도메인/부서별 모든 데이터셋 목록 |
+
+```python
+from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
+from datahub.emitter.mce_builder import make_dataset_urn
+from datahub.metadata.schema_classes import (
+    DatasetPropertiesClass,
+    OwnershipClass,
+)
+
+graph = DataHubGraph(DatahubClientConfig(server=DATAHUB_GMS_URL, token=DATAHUB_TOKEN))
+
+# 모든 데이터셋 열거 — 건강도 점수 계산을 위한 반복
+# GraphQL: scrollAcrossEntities 또는 REST 필터
+dataset_urns = list(graph.get_urns_by_filter(entity_types=["dataset"]))
+
+for dataset_urn in dataset_urns:
+    # 소유권 — 소유자 할당 여부 확인
+    # REST: GET /aspects/{urn}?aspect=ownership
+    ownership = graph.get_aspect(dataset_urn, OwnershipClass)
+
+    # 설명 — 문서화 커버리지 확인
+    # REST: GET /aspects/{urn}?aspect=datasetProperties
+    properties = graph.get_aspect(dataset_urn, DatasetPropertiesClass)
+```
+
+> **핵심 포인트**: DataHub는 데이터셋별 메타데이터 aspect를 저장합니다. DataSpoke가 이를 데이터셋 간 건강도 점수, 부서 순위, 추세 분석으로 집계합니다.
+
+#### DataSpoke 커스텀 구현
+
+| 컴포넌트 | 책임 | DataHub가 할 수 없는 이유 |
+|---------|------|------------------------|
+| **건강도 점수 집계기** | 설명, 소유권, 태그, 컬럼 문서, 신선도로부터 0–100 점수 계산 | DataHub에는 aspect 간 교차 점수 체계 없음 |
+| **부서 매퍼** | 소유권 → HR API 조회를 통한 데이터셋-부서 매핑 | DataHub는 소유권 URN을 저장하지만 조직 구조 인식 없음 |
+| **이슈 트래커** | PostgreSQL에서 메타데이터 격차 탐지, 우선순위화, 추적 (critical/high/medium) | DataHub에는 이슈 수명주기 관리 없음 |
+| **알림 엔진** | 데이터셋 소유자에게 조치 항목, 예상 수정 시간, 예상 점수 영향 이메일 발송 | DataHub에는 외부 알림 시스템 없음 |
+| **추세 분석** | 시간별 건강도 점수 추적, 감쇠율 계산, 개선 예측 | DataHub는 시점별 aspect를 저장하지만 메타데이터 품질의 시계열 집계 없음 |
 
 #### 결과
 
