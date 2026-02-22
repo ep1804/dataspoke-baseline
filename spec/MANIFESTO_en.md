@@ -60,10 +60,9 @@ DataSpoke consists of four major components:
 │         /api/v1/spoke/[de|da|dg]/...          │
 └───────────┬───────────────────────┬───────────┘
             │                       │
-┌───────────▼───────────┐ ┌────────▼────────────┐
-│                       │ │      DataSpoke      │
-│       DataHub         │ │  Backend / Pipeline │
-│    (metadata SSOT)    │ │                     │
+┌───────────▼───────────┐ ┌─────────▼───────────┐
+│       DataHub         │ │      DataSpoke      │
+│    (metadata SSOT)    │ │  Backend / Pipeline │
 └───────────────────────┘ └─────────────────────┘
 
               High Level Architecture
@@ -76,16 +75,16 @@ DataSpoke consists of four major components:
 
 ```
 ┌─────────────────────────────────────────────┐
-│  Data Hub & Spokes                          │
+│  Data Hub & Spokes                   Login  │
+│─────────────────────────────────────────────│
 │                                             │
-│        (DE)                                 │
-│           \                                 │
-│            \         (DA)                   │
-│             \       /                       │
-│            [Hub]---/                        │
-│              |                              │
-│              |                              │
-│             (DG)                            │
+│              (DE)                           │
+│                 \                           │
+│                  \                          │
+│                   (Hub)----(DG)             │
+│                  /                          │
+│                 /                           │
+│              (DG)                           │
 │                                             │
 └─────────────────────────────────────────────┘
                  UI Main Page
