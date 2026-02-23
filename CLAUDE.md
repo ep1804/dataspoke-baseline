@@ -93,42 +93,25 @@ alembic upgrade head  # Apply DB migrations
 
 ## Spec Documents
 
-The `spec/` directory is hierarchical. **`MANIFESTO_en.md` is the highest authority** — all naming, user-group taxonomy (DE/DA/DG), and product identity derive from them.
+The `spec/` directory is hierarchical. Specs should not contradict each other — when any document changes, propagate the change both upward and downward through the hierarchy. The priority order (highest first):
 
-```
-spec/
-├── MANIFESTO_en.md / MANIFESTO_kr.md          ← Highest authority. Never modify.
-├── ARCHITECTURE.md                             ← System-wide architecture: components, data flows,
-│                                                 feature mapping (UC1–UC8), shared services, deployment.
-├── AI_SCAFFOLD.md                              ← Claude Code scaffold: Goal 2 of the project.
-├── USE_CASE_en.md / _kr.md                     ← Conceptual scenarios (UC1–UC8, vision/ideation).
-├── DATAHUB_INTEGRATION.md                      ← DataHub SDK patterns, aspect catalog, error handling.
-├── API_DESIGN_PRINCIPLE_en.md / _kr.md         ← REST API conventions. Apply to all APIs.
-├── feature/                                    ← Deep-dive specs for COMMON (cross-cutting) features.
-│   │                                             Timeless reference format. No dates/logs.
-│   └── <FEATURE>.md
-├── feature/spoke/                              ← Deep-dive specs for USER-GROUP-SPECIFIC features.
-│   │                                             One file per feature, grouped by user group (DE/DA/DG).
-│   └── <FEATURE>.md
-└── impl/                                       ← Chronological implementation plans/logs.
-    │                                             Newest-first. Also used for minor changes.
-    └── YYYYMMDD_<topic>.md
-```
+| Priority | Documents | Role |
+|----------|-----------|------|
+| 1 (highest) | `MANIFESTO_en.md` / `MANIFESTO_kr.md` | Product identity, user-group taxonomy. Never modify unless explicitly requested. |
+| 2 | `API_DESIGN_PRINCIPLE_en/kr.md`, `DATAHUB_INTEGRATION.md` | Binding conventions for all APIs and DataHub interactions. |
+| 3 | `ARCHITECTURE.md`, `USE_CASE_en/kr.md` | System-wide architecture and conceptual scenarios. |
+| 4 | `AI_SCAFFOLD.md` | Claude Code scaffold and AI-assisted development guidelines. |
+| 5 | `feature/<FEATURE>.md` | Deep-dive specs for common (cross-cutting) features. |
+| 6 | `feature/spoke/<FEATURE>.md` | Deep-dive specs for user-group-specific features. |
+| 7 (lowest) | `impl/YYYYMMDD_<topic>.md` | Chronological implementation plans and logs. |
 
-- `spec/MANIFESTO_en.md` / `spec/MANIFESTO_kr.md` — product philosophy, user-group taxonomy (DE/DA/DG)
-- `spec/ARCHITECTURE.md` — system architecture, components (UI, API, Backend/Pipeline, DataHub), data flows, feature-to-architecture mapping (UC1–UC8), shared services (Ontology Builder, Quality Score Engine), tech stack, deployment
-- `spec/USE_CASE_en.md` / `spec/USE_CASE_kr.md` — conceptual scenarios organized by user group (UC1–UC8, vision/ideation)
-- `spec/DATAHUB_INTEGRATION.md` — DataHub SDK patterns (read/write/event), aspect catalog, GraphQL usage, error handling conventions. **Reference this when implementing any DataHub interaction.**
-- `spec/API_DESIGN_PRINCIPLE_en.md` / `spec/API_DESIGN_PRINCIPLE_kr.md` — REST API conventions (URI structure, request/response format, content/metadata separation, meta-classifiers). **Reference this when designing any API.**
-- `spec/feature/API.md` — API layer design and shared infrastructure
-- `spec/feature/DEV_ENV.md` — local Kubernetes dev environment specification
-- `spec/feature/spoke/` — user-group-specific feature specs (none yet; awaiting: Ingestion, Validator, Doc Suggestions for DE; NL Search, Text-to-SQL Metadata for DA; Metrics Dashboard, Multi-Perspective Overview for DG)
-- `spec/impl/20260220_datahub_api_skill.md` — DataHub API skill design and implementation
-- `dev_env/README.md` — local Kubernetes setup details
+Propagation stops at `spec/impl/` — these are logs of past work. When an upstream change invalidates an impl document, either delete it or mark it as deprecated.
+
+When both English (`_en.md`) and Korean (`_kr.md`) versions exist, they carry the same meaning. Read only the English version unless explicitly directed to read or modify a specific language version. When writing Korean documents, use the plain style (-다/-한다) instead of the polite honorific style (-입니다/-합니다).
+
+**Reference when implementing**: `DATAHUB_INTEGRATION.md` for any DataHub interaction; `API_DESIGN_PRINCIPLE_en.md` for any API design.
 
 Use `/dataspoke-plan-write` to author new specs. It guides scope selection, gathers requirements through Q&A, reviews a writing plan, writes the document (via `plan-doc` conventions), and recommends AI scaffold updates.
-
-c.f. When writing Korean documents, use the plain style (-다/-한다) instead of the polite honorific style (-입니다/-합니다).
 
 ## Git Commit Convention
 
