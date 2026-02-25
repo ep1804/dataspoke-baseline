@@ -2,7 +2,7 @@
 name: kubectl
 description: Manage the local kubernetes cluster for development. Use when the user asks to check pods, restart deployments, view logs, apply manifests, create or delete resources, or perform any kubectl/helm operation.
 argument-hint: <operation>
-disable-model-invocation: true
+disable-model-invocation: false
 allowed-tools: Bash(kubectl *), Bash(helm *), Read
 ---
 
