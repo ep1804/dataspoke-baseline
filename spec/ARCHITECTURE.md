@@ -463,54 +463,52 @@ Replica counts, resource requests/limits, and PV sizes are configurable via Helm
 
 ### Configuration
 
-All runtime configuration is driven by **environment variables** with the `DATASPOKE_` prefix. In local development, variables are defined in `dev_env/.env` (gitignored). In production, they are injected via Kubernetes Secrets or a secrets manager.
+All runtime configuration is driven by **environment variables** with two tiers:
 
-**Naming convention**:
+| Prefix | Scope | Who reads it |
+|--------|-------|-------------|
+| `DATASPOKE_DEV_*` | Dev environment only | `dev_env/*.sh` scripts |
+| `DATASPOKE_*` (no `DEV`) | Application runtime | DataSpoke app code (FastAPI, workers, frontend) |
 
-| Prefix | Scope |
-|--------|-------|
-| `DATASPOKE_` | Shared across all environments (dev, staging, production) |
-| `DATASPOKE_DEV_` | Local development only — not used in production configs |
-| `KUBE` in name | Kubernetes resource or setting |
+Dev-only variables (`DATASPOKE_DEV_*`) configure local Kubernetes cluster settings, namespace names, chart versions, and port-forward ports. The application code never reads them.
 
-**Key variable groups**:
+Application runtime variables (`DATASPOKE_*`) are the same names in dev and prod — only the values differ. In dev, they point to `localhost` (port-forwarded from k8s). In production, they are injected via Helm values → Kubernetes ConfigMap/Secret.
+
+**Application runtime variable groups**:
 
 | Group | Variables | Purpose |
 |-------|-----------|---------|
-| Kubernetes | `DATASPOKE_KUBE_CLUSTER`, `DATASPOKE_KUBE_DATAHUB_NAMESPACE`, `DATASPOKE_KUBE_DATASPOKE_NAMESPACE` | Cluster context and namespace targeting |
-| LLM API | `DATASPOKE_LLM_PROVIDER`, `DATASPOKE_LLM_API_KEY`, `DATASPOKE_LLM_MODEL` | LLM integration (e.g. Gemini, OpenAI, Anthropic) for ontology, doc generation, semantic analysis |
 | DataHub connection | `DATASPOKE_DATAHUB_GMS_URL`, `DATASPOKE_DATAHUB_KAFKA_BROKERS` | GMS endpoint for SDK read/write, Kafka brokers for MCE/MAE events |
-| PostgreSQL | `DATASPOKE_POSTGRES_USER`, `DATASPOKE_POSTGRES_PASSWORD`, `DATASPOKE_POSTGRES_DB` | Operational DB for ingestion configs, quality results, health scores, ontology graph |
-| Redis | `DATASPOKE_REDIS_PASSWORD` | Cache for validation results, API responses, rate limiting |
-| Qdrant | `DATASPOKE_QDRANT_API_KEY` | Vector DB authentication (optional in dev) |
-| Temporal | `DATASPOKE_TEMPORAL_NAMESPACE` | Workflow orchestration namespace |
+| PostgreSQL | `DATASPOKE_POSTGRES_HOST`, `DATASPOKE_POSTGRES_PORT`, `DATASPOKE_POSTGRES_USER`, `DATASPOKE_POSTGRES_PASSWORD`, `DATASPOKE_POSTGRES_DB` | Operational DB for ingestion configs, quality results, health scores, ontology graph |
+| Redis | `DATASPOKE_REDIS_HOST`, `DATASPOKE_REDIS_PORT`, `DATASPOKE_REDIS_PASSWORD` | Cache for validation results, API responses, rate limiting |
+| Qdrant | `DATASPOKE_QDRANT_HOST`, `DATASPOKE_QDRANT_HTTP_PORT`, `DATASPOKE_QDRANT_GRPC_PORT`, `DATASPOKE_QDRANT_API_KEY` | Vector DB for semantic search, embedding storage |
+| Temporal | `DATASPOKE_TEMPORAL_HOST`, `DATASPOKE_TEMPORAL_PORT`, `DATASPOKE_TEMPORAL_NAMESPACE` | Workflow orchestration |
+| LLM API | `DATASPOKE_LLM_PROVIDER`, `DATASPOKE_LLM_API_KEY`, `DATASPOKE_LLM_MODEL` | LLM integration (e.g. Gemini, OpenAI, Anthropic) for ontology, doc generation, semantic analysis |
 
-For production, secrets (`DATASPOKE_LLM_API_KEY`, `DATASPOKE_POSTGRES_PASSWORD`, `DATASPOKE_REDIS_PASSWORD`, etc.) are stored as Kubernetes Secrets and referenced by deployments. Example production config:
+**Dev-only variable groups** (examples):
 
-```yaml
-# config/production.yaml (non-secret overrides)
-datahub:
-  gms_url: "https://datahub.company.com"
-  kafka_brokers: "datahub-kafka-1:9092,datahub-kafka-2:9092"
+| Group | Variables | Purpose |
+|-------|-----------|---------|
+| Cluster & namespaces | `DATASPOKE_DEV_KUBE_CLUSTER`, `DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE`, `DATASPOKE_DEV_KUBE_DATASPOKE_NAMESPACE` | Cluster context and namespace targeting |
+| Chart versions | `DATASPOKE_DEV_KUBE_DATAHUB_PREREQUISITES_CHART_VERSION`, `DATASPOKE_DEV_KUBE_DATAHUB_CHART_VERSION` | Helm chart version pins |
+| Port-forward | `DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_*`, `DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_*` | Local port mappings |
 
-llm:
-  provider: "gemini"          # or openai, anthropic, azure
-  model: "gemini-2.0-flash"
-  api_key_secret: "dataspoke-llm-secret"   # K8s secret reference
-```
+For production, secrets (`DATASPOKE_LLM_API_KEY`, `DATASPOKE_POSTGRES_PASSWORD`, `DATASPOKE_REDIS_PASSWORD`, etc.) are stored as Kubernetes Secrets and referenced by deployments. Configuration flows through the umbrella Helm chart: Helm values → ConfigMap/Secret → container environment. See [`spec/feature/HELM_CHART.md`](feature/HELM_CHART.md) for details.
 
 For the full variable listing with defaults, see [`spec/feature/DEV_ENV.md` §Configuration](feature/DEV_ENV.md#configuration).
 
 ### Local Development
 
-For dev/CI, DataHub and DataSpoke infrastructure are provisioned locally via `dev_env/`:
+For dev/CI, DataHub and DataSpoke infrastructure dependencies are provisioned locally via `dev_env/`:
 ```bash
-cd dev_env && ./install.sh    # Install DataHub + DataSpoke stack + examples (5–10 min first run)
+cd dev_env && ./install.sh    # Install DataHub + DataSpoke infra + examples (5–10 min first run)
 cd dev_env && ./uninstall.sh  # Tear down
-# Settings: dev_env/.env (cluster, namespaces, credentials, LLM API keys, chart versions)
+# Settings: dev_env/.env (DATASPOKE_DEV_* for cluster config, DATASPOKE_* for app config)
 ```
 
-The bundled dev environment is **NOT** for production.
+The dev environment installs only **infrastructure dependencies** (PostgreSQL, Redis, Qdrant, Temporal) into the cluster. DataSpoke application services (frontend, API, workers) run locally on the developer's host, connecting to port-forwarded infrastructure services. See [`spec/feature/DEV_ENV.md` §Running DataSpoke Locally](feature/DEV_ENV.md#running-dataspoke-locally).
+
+The bundled dev environment is **NOT** for production. For production Kubernetes deployment, see [`spec/feature/HELM_CHART.md`](feature/HELM_CHART.md).
 
 ---
 

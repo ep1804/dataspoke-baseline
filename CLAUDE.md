@@ -12,18 +12,22 @@ All scripts live in `dev_env/` and use settings from `dev_env/.env`:
 
 ```bash
 # Edit cluster settings before first use
-# DATASPOKE_KUBE_CLUSTER, DATASPOKE_KUBE_DATAHUB_NAMESPACE, DATASPOKE_KUBE_DATASPOKE_NAMESPACE
+# DATASPOKE_DEV_KUBE_CLUSTER, DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE, DATASPOKE_DEV_KUBE_DATASPOKE_NAMESPACE
 
-# Install everything (takes 5–10 min on first run)
+# Install infrastructure (takes 5–10 min on first run)
 cd dev_env && ./install.sh
 
 # Uninstall everything
 cd dev_env && ./uninstall.sh
 
 # Verify installation
-kubectl get pods -n $DATASPOKE_KUBE_DATAHUB_NAMESPACE
-helm list -n $DATASPOKE_KUBE_DATAHUB_NAMESPACE
+kubectl get pods -n $DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE
+helm list -n $DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE
 ```
+
+The dev environment installs only **infrastructure dependencies** (DataHub, PostgreSQL, Redis, Qdrant, Temporal, example data sources) into the cluster. DataSpoke application services (frontend, API, workers) run locally on the host via `make dev-up`, connecting to port-forwarded infrastructure.
+
+Environment variables use two tiers: `DATASPOKE_DEV_*` for dev-only settings (cluster, namespaces, chart versions, port-forward ports) and `DATASPOKE_*` for application runtime config (same names in dev and prod, different values).
 
 For accessing the DataHub UI and example data sources, see `dev_env/README.md` §Quick Start or run `dev_env/datahub-port-forward.sh`.
 

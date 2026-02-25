@@ -18,31 +18,31 @@ fi
 source "$SCRIPT_DIR/../.env"
 
 echo ""
-echo "=== Uninstalling DataHub ==="
+echo "=== Uninstalling DataSpoke infrastructure ==="
 echo ""
 
-NS="${DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE}"
+NS="${DATASPOKE_DEV_KUBE_DATASPOKE_NAMESPACE}"
 
 # ---------------------------------------------------------------------------
-# Uninstall datahub
+# Uninstall Helm release
 # ---------------------------------------------------------------------------
-if helm status datahub --namespace "${NS}" >/dev/null 2>&1; then
-  info "Uninstalling Helm release 'datahub' from namespace '${NS}'..."
-  helm uninstall datahub --namespace "${NS}"
+if helm status dataspoke --namespace "${NS}" >/dev/null 2>&1; then
+  info "Uninstalling Helm release 'dataspoke' from namespace '${NS}'..."
+  helm uninstall dataspoke --namespace "${NS}"
 else
-  warn "Helm release 'datahub' not found in namespace '${NS}' — skipping."
+  warn "Helm release 'dataspoke' not found in namespace '${NS}' — skipping."
 fi
 
 # ---------------------------------------------------------------------------
-# Uninstall datahub-prerequisites
+# Clean up secrets
 # ---------------------------------------------------------------------------
-if helm status datahub-prerequisites --namespace "${NS}" >/dev/null 2>&1; then
-  info "Uninstalling Helm release 'datahub-prerequisites' from namespace '${NS}'..."
-  helm uninstall datahub-prerequisites --namespace "${NS}"
-else
-  warn "Helm release 'datahub-prerequisites' not found in namespace '${NS}' — skipping."
-fi
+for SECRET in dataspoke-postgres-secret dataspoke-redis-secret dataspoke-qdrant-secret; do
+  if kubectl get secret "${SECRET}" -n "${NS}" >/dev/null 2>&1; then
+    info "Deleting secret '${SECRET}'..."
+    kubectl delete secret "${SECRET}" -n "${NS}"
+  fi
+done
 
 echo ""
-info "DataHub Helm releases removed."
+info "DataSpoke infrastructure removed."
 echo ""

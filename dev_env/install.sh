@@ -32,15 +32,15 @@ info "kubectl and helm are available."
 # ---------------------------------------------------------------------------
 # Switch Kubernetes context
 # ---------------------------------------------------------------------------
-info "Switching to Kubernetes context: ${DATASPOKE_KUBE_CLUSTER}"
-kubectl config use-context "${DATASPOKE_KUBE_CLUSTER}"
+info "Switching to Kubernetes context: ${DATASPOKE_DEV_KUBE_CLUSTER}"
+kubectl config use-context "${DATASPOKE_DEV_KUBE_CLUSTER}"
 
 # ---------------------------------------------------------------------------
 # Create namespaces (idempotent)
 # ---------------------------------------------------------------------------
 NAMESPACES=(
-  "${DATASPOKE_KUBE_DATAHUB_NAMESPACE}"
-  "${DATASPOKE_KUBE_DATASPOKE_NAMESPACE}"
+  "${DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE}"
+  "${DATASPOKE_DEV_KUBE_DATASPOKE_NAMESPACE}"
   "${DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE}"
 )
 
@@ -60,6 +60,12 @@ info "Running datahub/install.sh..."
 bash "$SCRIPT_DIR/datahub/install.sh"
 
 # ---------------------------------------------------------------------------
+# Install DataSpoke infrastructure
+# ---------------------------------------------------------------------------
+info "Running dataspoke-infra/install.sh..."
+bash "$SCRIPT_DIR/dataspoke-infra/install.sh"
+
+# ---------------------------------------------------------------------------
 # Install dataspoke-example sources
 # ---------------------------------------------------------------------------
 info "Running dataspoke-example/install.sh..."
@@ -72,23 +78,25 @@ echo ""
 echo "=== Installation complete ==="
 echo ""
 echo "Namespaces:"
-kubectl get namespaces "${DATASPOKE_KUBE_DATAHUB_NAMESPACE}" \
-  "${DATASPOKE_KUBE_DATASPOKE_NAMESPACE}" \
+kubectl get namespaces "${DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE}" \
+  "${DATASPOKE_DEV_KUBE_DATASPOKE_NAMESPACE}" \
   "${DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE}" 2>/dev/null || true
 echo ""
-echo "DataHub UI port-forward:"
+echo "Port-forward scripts:"
 echo ""
-echo "  kubectl port-forward \\"
-echo "    --namespace ${DATASPOKE_KUBE_DATAHUB_NAMESPACE} \\"
-echo "    \$(kubectl get pods -n ${DATASPOKE_KUBE_DATAHUB_NAMESPACE} \\"
-echo "      -l 'app.kubernetes.io/name=datahub-frontend' \\"
-echo "      -o jsonpath='{.items[0].metadata.name}') \\"
-echo "    9002:9002"
+echo "  DataHub (UI + GMS):         ./datahub-port-forward.sh"
+echo "  DataSpoke infra (PG, etc.): ./dataspoke-port-forward.sh"
+echo "  Example sources:            ./dummy-data-port-forward.sh"
 echo ""
-echo "  Open: http://localhost:9002"
-echo "  Credentials: datahub / datahub"
+echo "DataHub UI:  http://localhost:${DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_UI_PORT:-9002}"
+echo "DataHub GMS: http://localhost:${DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_GMS_PORT:-9004}"
+echo "Credentials: datahub / datahub"
 echo ""
-echo "Example source port-forward:"
+echo "DataSpoke infrastructure (after port-forward):"
+echo "  PostgreSQL: localhost:${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_POSTGRES_PORT:-9201}"
+echo "  Redis:      localhost:${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_REDIS_PORT:-9202}"
+echo "  Qdrant:     localhost:${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_QDRANT_HTTP_PORT:-9203} (HTTP), :${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_QDRANT_GRPC_PORT:-9204} (gRPC)"
+echo "  Temporal:   localhost:${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_TEMPORAL_PORT:-9205}"
 echo ""
-echo "  kubectl port-forward --namespace ${DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE} svc/example-postgres ${DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_PORT_FORWARD_PORT:-5432}:5432"
+echo "Run app services locally: source .env && make dev-up"
 echo ""

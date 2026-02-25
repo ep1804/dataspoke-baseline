@@ -69,7 +69,7 @@ if [[ ! -f "$SCRIPT_DIR/../.env" ]]; then
 fi
 source "$SCRIPT_DIR/../.env"
 
-NS="${DATASPOKE_KUBE_DATAHUB_NAMESPACE}"
+NS="${DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE}"
 
 echo ""
 echo "=== Installing DataHub ==="
@@ -86,8 +86,8 @@ info "kubectl and helm are available."
 # ---------------------------------------------------------------------------
 # Switch Kubernetes context
 # ---------------------------------------------------------------------------
-info "Switching to Kubernetes context: ${DATASPOKE_KUBE_CLUSTER}"
-kubectl config use-context "${DATASPOKE_KUBE_CLUSTER}"
+info "Switching to Kubernetes context: ${DATASPOKE_DEV_KUBE_CLUSTER}"
+kubectl config use-context "${DATASPOKE_DEV_KUBE_CLUSTER}"
 
 # ---------------------------------------------------------------------------
 # Add / update Helm repo

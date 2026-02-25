@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PID_FILE="$SCRIPT_DIR/.datahub-port-forward.pid"
+PID_FILE="$SCRIPT_DIR/.dataspoke-port-forward.pid"
 
 # ---------------------------------------------------------------------------
 # Helper functions
@@ -19,9 +19,12 @@ if [[ ! -f "$SCRIPT_DIR/.env" ]]; then
 fi
 source "$SCRIPT_DIR/.env"
 
-NS="${DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE}"
-UI_PORT="${DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_UI_PORT:-9002}"
-GMS_PORT="${DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_GMS_PORT:-9004}"
+NS="${DATASPOKE_DEV_KUBE_DATASPOKE_NAMESPACE}"
+PG_PORT="${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_POSTGRES_PORT:-9201}"
+REDIS_PORT="${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_REDIS_PORT:-9202}"
+QDRANT_HTTP_PORT="${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_QDRANT_HTTP_PORT:-9203}"
+QDRANT_GRPC_PORT="${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_QDRANT_GRPC_PORT:-9204}"
+TEMPORAL_PORT="${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_TEMPORAL_PORT:-9205}"
 
 # ---------------------------------------------------------------------------
 # --stop: kill running port-forwards and clean up
@@ -70,52 +73,62 @@ fi
 kubectl config use-context "${DATASPOKE_DEV_KUBE_CLUSTER}" >/dev/null 2>&1
 
 # ---------------------------------------------------------------------------
-# Find pods / services
-# ---------------------------------------------------------------------------
-FRONTEND_POD=$(kubectl get pods -n "${NS}" \
-  -l 'app.kubernetes.io/name=datahub-frontend' \
-  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) \
-  || error "No datahub-frontend pod found in namespace '${NS}'."
-[[ -z "$FRONTEND_POD" ]] && error "No datahub-frontend pod found in namespace '${NS}'."
-
-# GMS uses a service, so we forward to the service directly
-GMS_SVC="datahub-datahub-gms"
-kubectl get svc "$GMS_SVC" -n "${NS}" >/dev/null 2>&1 \
-  || error "Service '$GMS_SVC' not found in namespace '${NS}'."
-
-# ---------------------------------------------------------------------------
 # Start port-forwards in the background
 # ---------------------------------------------------------------------------
-kubectl port-forward --namespace "${NS}" "${FRONTEND_POD}" "${UI_PORT}:9002" >/dev/null 2>&1 &
-UI_PID=$!
+PIDS=()
 
-kubectl port-forward --namespace "${NS}" "svc/${GMS_SVC}" "${GMS_PORT}:8080" >/dev/null 2>&1 &
-GMS_PID=$!
+# PostgreSQL
+kubectl port-forward --namespace "${NS}" svc/dataspoke-postgresql "${PG_PORT}:5432" >/dev/null 2>&1 &
+PIDS+=($!)
+
+# Redis
+kubectl port-forward --namespace "${NS}" svc/dataspoke-redis-master "${REDIS_PORT}:6379" >/dev/null 2>&1 &
+PIDS+=($!)
+
+# Qdrant HTTP
+kubectl port-forward --namespace "${NS}" svc/dataspoke-qdrant "${QDRANT_HTTP_PORT}:6333" >/dev/null 2>&1 &
+PIDS+=($!)
+
+# Qdrant gRPC
+kubectl port-forward --namespace "${NS}" svc/dataspoke-qdrant "${QDRANT_GRPC_PORT}:6334" >/dev/null 2>&1 &
+PIDS+=($!)
+
+# Temporal
+kubectl port-forward --namespace "${NS}" svc/dataspoke-temporal-frontend "${TEMPORAL_PORT}:7233" >/dev/null 2>&1 &
+PIDS+=($!)
 
 # Write PIDs
-echo "$UI_PID" > "$PID_FILE"
-echo "$GMS_PID" >> "$PID_FILE"
+printf '%s\n' "${PIDS[@]}" > "$PID_FILE"
 
 # Brief pause to let port-forwards establish
-sleep 1
+sleep 2
 
-# Verify both are still running
-if ! kill -0 "$UI_PID" 2>/dev/null; then
+# Verify all are still running
+FAILED=false
+for pid in "${PIDS[@]}"; do
+  if ! kill -0 "$pid" 2>/dev/null; then
+    FAILED=true
+    break
+  fi
+done
+
+if $FAILED; then
+  # Clean up any that did start
+  for pid in "${PIDS[@]}"; do
+    kill "$pid" 2>/dev/null || true
+  done
   rm -f "$PID_FILE"
-  error "Frontend port-forward failed to start."
-fi
-if ! kill -0 "$GMS_PID" 2>/dev/null; then
-  kill "$UI_PID" 2>/dev/null || true
-  rm -f "$PID_FILE"
-  error "GMS port-forward failed to start."
+  error "One or more port-forwards failed to start. Check that all infra pods are Running in namespace '${NS}'."
 fi
 
 info "Port-forwards started in background."
 echo ""
-echo "  DataHub UI:       http://localhost:${UI_PORT}"
-echo "  DataHub GMS:      http://localhost:${GMS_PORT}"
-echo "  Credentials:      datahub / datahub"
+echo "  PostgreSQL:  localhost:${PG_PORT}   (-> dataspoke-postgresql:5432)"
+echo "  Redis:       localhost:${REDIS_PORT}   (-> dataspoke-redis-master:6379)"
+echo "  Qdrant HTTP: localhost:${QDRANT_HTTP_PORT}   (-> dataspoke-qdrant:6333)"
+echo "  Qdrant gRPC: localhost:${QDRANT_GRPC_PORT}   (-> dataspoke-qdrant:6334)"
+echo "  Temporal:    localhost:${TEMPORAL_PORT}   (-> dataspoke-temporal-frontend:7233)"
 echo ""
-echo "  PIDs: UI=$UI_PID, GMS=$GMS_PID (saved to $PID_FILE)"
+echo "  PIDs: ${PIDS[*]} (saved to $PID_FILE)"
 echo "  Stop with: $0 --stop"
 echo ""

@@ -9,9 +9,9 @@ allowed-tools: Bash(kubectl *), Bash(helm *), Read
 ## Setup
 
 1. **Read cluster config**: Read `dev_env/.env` to get:
-   - `DATASPOKE_KUBE_CLUSTER` — kube context (e.g., `minikube`)
-   - `DATASPOKE_KUBE_DATAHUB_NAMESPACE` — DataHub namespace (e.g., `datahub-01`)
-   - `DATASPOKE_KUBE_DATASPOKE_NAMESPACE` — DataSpoke namespace (e.g., `dataspoke-team1`)
+   - `DATASPOKE_DEV_KUBE_CLUSTER` — kube context (e.g., `docker-desktop`)
+   - `DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE` — DataHub namespace (e.g., `datahub-01`)
+   - `DATASPOKE_DEV_KUBE_DATASPOKE_NAMESPACE` — DataSpoke namespace (e.g., `dataspoke-01`)
    - `DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE` — Example sources namespace (e.g., `dummy-data1`)
 
 2. **Verify prerequisites**:

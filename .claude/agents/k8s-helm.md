@@ -21,13 +21,13 @@ helm-charts/
 ├── dataspoke/                 # Main umbrella chart
 │   ├── Chart.yaml
 │   ├── values.yaml            # Defaults — no secrets
-│   ├── values.dev.yaml        # Dev overrides with minimal resources
+│   ├── values-dev.yaml         # Dev overrides with minimal resources
 │   └── templates/             # Standard Helm chart structure
 
 docker-images/<service>/
 └── Dockerfile
 
-dev_env/dataspoke/             # Follow dev_env/datahub/ style
+dev_env/dataspoke-infra/       # Follow dev_env/datahub/ style
 ├── install.sh
 └── uninstall.sh
 ```
@@ -62,10 +62,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/helpers.sh"
 source "$SCRIPT_DIR/../.env"
 
-echo "=== Installing dataspoke ==="
+echo "=== Installing dataspoke infra ==="
+kubectl config use-context "${DATASPOKE_DEV_KUBE_CLUSTER}"
 helm upgrade --install dataspoke ./helm-charts/dataspoke \
-  --namespace "${DATASPOKE_KUBE_DATASPOKE_NAMESPACE}" \
+  --namespace "${DATASPOKE_DEV_KUBE_DATASPOKE_NAMESPACE}" \
   --create-namespace \
-  --values ./helm-charts/dataspoke/values.dev.yaml
-kubectl config use-context "${DATASPOKE_KUBE_CLUSTER}"
+  --values ./helm-charts/dataspoke/values-dev.yaml
 ```

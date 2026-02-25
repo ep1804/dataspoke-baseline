@@ -59,6 +59,16 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Uninstall DataSpoke infrastructure
+# ---------------------------------------------------------------------------
+if [[ -f "$SCRIPT_DIR/dataspoke-infra/uninstall.sh" ]]; then
+  info "Running dataspoke-infra/uninstall.sh..."
+  bash "$SCRIPT_DIR/dataspoke-infra/uninstall.sh"
+else
+  warn "dataspoke-infra/uninstall.sh not found — skipping."
+fi
+
+# ---------------------------------------------------------------------------
 # Uninstall DataHub
 # ---------------------------------------------------------------------------
 if [[ -f "$SCRIPT_DIR/datahub/uninstall.sh" ]]; then
@@ -73,8 +83,8 @@ fi
 # ---------------------------------------------------------------------------
 echo ""
 NAMESPACES=(
-  "${DATASPOKE_KUBE_DATAHUB_NAMESPACE}"
-  "${DATASPOKE_KUBE_DATASPOKE_NAMESPACE}"
+  "${DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE}"
+  "${DATASPOKE_DEV_KUBE_DATASPOKE_NAMESPACE}"
   "${DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE}"
 )
 

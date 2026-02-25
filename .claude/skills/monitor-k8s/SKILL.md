@@ -8,9 +8,9 @@ allowed-tools: Bash(kubectl *), Bash(helm *), Bash(minikube *), Bash(sleep *), B
 ---
 
 1. Read `dev_env/.env` for kube context and namespace names:
-   - `DATASPOKE_KUBE_CLUSTER` — kube context (e.g., `minikube`)
-   - `DATASPOKE_KUBE_DATAHUB_NAMESPACE` — DataHub namespace (e.g., `datahub-01`)
-   - `DATASPOKE_KUBE_DATASPOKE_NAMESPACE` — DataSpoke namespace (e.g., `dataspoke-team1`)
+   - `DATASPOKE_DEV_KUBE_CLUSTER` — kube context (e.g., `docker-desktop`)
+   - `DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE` — DataHub namespace (e.g., `datahub-01`)
+   - `DATASPOKE_DEV_KUBE_DATASPOKE_NAMESPACE` — DataSpoke namespace (e.g., `dataspoke-01`)
    - `DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE` — Example sources namespace (e.g., `dummy-data1`)
 
    **Use these variable values in all kubectl/helm commands below.** Do NOT hardcode namespace names.
@@ -43,18 +43,22 @@ kubectl get pods -n $NS_EX -o wide 2>/dev/null || echo "$NS_EX namespace not fou
 
 # PVC status
 kubectl get pvc -n $NS_DH 2>/dev/null
+kubectl get pvc -n $NS_DS 2>/dev/null
 kubectl get pvc -n $NS_EX 2>/dev/null
 
 # Resource usage
 kubectl top pods -n $NS_DH --sort-by=cpu 2>/dev/null
+kubectl top pods -n $NS_DS --sort-by=cpu 2>/dev/null
 kubectl top pods -n $NS_EX 2>/dev/null
 
 # Helm releases
 helm list -n $NS_DH
+helm list -n $NS_DS 2>/dev/null
 helm list --all-namespaces --failed 2>/dev/null
 
 # Warning events (all namespaces)
 kubectl get events -n $NS_DH --field-selector type=Warning --sort-by='.lastTimestamp' | tail -20
+kubectl get events -n $NS_DS --field-selector type=Warning --sort-by='.lastTimestamp' 2>/dev/null | tail -20
 kubectl get events -n $NS_EX --field-selector type=Warning --sort-by='.lastTimestamp' 2>/dev/null | tail -20
 ```
 

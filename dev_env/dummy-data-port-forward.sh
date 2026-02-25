@@ -67,7 +67,7 @@ fi
 # ---------------------------------------------------------------------------
 # Switch context
 # ---------------------------------------------------------------------------
-kubectl config use-context "${DATASPOKE_KUBE_CLUSTER}" >/dev/null 2>&1
+kubectl config use-context "${DATASPOKE_DEV_KUBE_CLUSTER}" >/dev/null 2>&1
 
 # ---------------------------------------------------------------------------
 # Find services
