@@ -1,0 +1,133 @@
+# DataSpoke Umbrella Chart — Dev Overlay
+# Infrastructure only. Application subcharts disabled (run locally).
+# Used by: dev_env/dataspoke-infra/install.sh
+
+# ---------------------------------------------------------------------------
+# Application components: disabled (developers run them locally)
+# ---------------------------------------------------------------------------
+frontend:
+  enabled: false
+api:
+  enabled: false
+workers:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Infrastructure components: enabled with reduced resources
+# ---------------------------------------------------------------------------
+postgresql:
+  enabled: true
+  auth:
+    # username/database: passed via --set from .env
+    secretKeys:
+      adminPasswordKey: "POSTGRES_PASSWORD"
+      userPasswordKey: "POSTGRES_PASSWORD"
+  primary:
+    resources:
+      limits:
+        memory: 512Mi
+        cpu: 500m
+      requests:
+        memory: 256Mi
+        cpu: 100m
+    persistence:
+      size: 10Gi
+    initdb:
+      scripts:
+        create-temporal-dbs.sql: |
+          CREATE DATABASE temporal;
+          CREATE DATABASE temporal_visibility;
+
+redis:
+  enabled: true
+  auth:
+    existingSecretPasswordKey: "REDIS_PASSWORD"
+  master:
+    resources:
+      limits:
+        memory: 256Mi
+        cpu: 250m
+      requests:
+        memory: 128Mi
+        cpu: 50m
+  replica:
+    replicaCount: 0
+
+qdrant:
+  enabled: true
+  resources:
+    limits:
+      memory: 1024Mi
+      cpu: 500m
+    requests:
+      memory: 512Mi
+      cpu: 100m
+  persistence:
+    size: 10Gi
+
+temporal:
+  enabled: true
+  server:
+    replicaCount: 1
+    resources:
+      limits:
+        memory: 1024Mi
+        cpu: 500m
+      requests:
+        memory: 512Mi
+        cpu: 100m
+    config:
+      persistence:
+        defaultStore: default
+        additionalStores: {}
+        default:
+          driver: "sql"
+          sql:
+            driver: "postgres12"
+            host: "dataspoke-postgresql"
+            port: 5432
+            database: "temporal"
+            # user/password: passed via --set from .env
+            maxConns: 20
+            maxIdleConns: 20
+            maxConnLifetime: "1h"
+        visibility:
+          driver: "sql"
+          sql:
+            driver: "postgres12"
+            host: "dataspoke-postgresql"
+            port: 5432
+            database: "temporal_visibility"
+            # user/password: passed via --set from .env
+            maxConns: 20
+            maxIdleConns: 20
+            maxConnLifetime: "1h"
+  cassandra:
+    enabled: false
+  mysql:
+    enabled: false
+  postgresql:
+    enabled: false
+  elasticsearch:
+    enabled: false
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+  schema:
+    setup:
+      enabled: true
+    createDatabase:
+      enabled: true
+    update:
+      enabled: true
+  web:
+    enabled: false
+
+# ---------------------------------------------------------------------------
+# ConfigMap/Secret: not created in dev (app reads env vars directly)
+# ---------------------------------------------------------------------------
+config:
+  createConfigMap: false
+secrets:
+  createSecret: false

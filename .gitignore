@@ -1,2 +1,3 @@
 dev_env/.env
 dev_env/.*.pid
+helm-charts/dataspoke/charts/

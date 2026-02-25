@@ -1,0 +1,243 @@
+# DataSpoke Umbrella Chart — Production Defaults
+# All components enabled with production-grade settings.
+
+# ---------------------------------------------------------------------------
+# Application subcharts
+# ---------------------------------------------------------------------------
+frontend:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: dataspoke/frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    hosts:
+      - host: dataspoke.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: dataspoke-tls
+        hosts:
+          - dataspoke.example.com
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+api:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: dataspoke/api
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8000
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    hosts:
+      - host: api.dataspoke.example.com
+        paths:
+          - path: /api
+            pathType: Prefix
+    tls:
+      - secretName: dataspoke-api-tls
+        hosts:
+          - api.dataspoke.example.com
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1024Mi
+
+workers:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: dataspoke/workers
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1024Mi
+    limits:
+      cpu: "1"
+      memory: 2048Mi
+
+# ---------------------------------------------------------------------------
+# Infrastructure subcharts
+# ---------------------------------------------------------------------------
+postgresql:
+  enabled: true
+  auth:
+    username: "dataspoke"
+    database: "dataspoke"
+    existingSecret: ""
+    secretKeys:
+      adminPasswordKey: "POSTGRES_PASSWORD"
+      userPasswordKey: "POSTGRES_PASSWORD"
+  primary:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1024Mi
+      limits:
+        cpu: "1"
+        memory: 2048Mi
+    persistence:
+      size: 50Gi
+
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    existingSecret: ""
+    existingSecretPasswordKey: "REDIS_PASSWORD"
+  master:
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  replica:
+    replicaCount: 1
+
+qdrant:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1024Mi
+    limits:
+      cpu: "1"
+      memory: 2048Mi
+  persistence:
+    size: 50Gi
+
+temporal:
+  enabled: true
+  server:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1024Mi
+      limits:
+        cpu: "1"
+        memory: 2048Mi
+    config:
+      persistence:
+        defaultStore: default
+        additionalStores: {}
+        default:
+          driver: "sql"
+          sql:
+            driver: "postgres12"
+            host: "dataspoke-postgresql"
+            port: 5432
+            database: "temporal"
+            user: "dataspoke"
+            password: "temporal"
+            existingSecret: ""
+            maxConns: 20
+            maxIdleConns: 20
+            maxConnLifetime: "1h"
+        visibility:
+          driver: "sql"
+          sql:
+            driver: "postgres12"
+            host: "dataspoke-postgresql"
+            port: 5432
+            database: "temporal_visibility"
+            user: "dataspoke"
+            password: "temporal"
+            existingSecret: ""
+            maxConns: 20
+            maxIdleConns: 20
+            maxConnLifetime: "1h"
+  cassandra:
+    enabled: false
+  mysql:
+    enabled: false
+  postgresql:
+    enabled: false
+  elasticsearch:
+    enabled: false
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+  web:
+    enabled: true
+
+# ---------------------------------------------------------------------------
+# Shared application configuration (injected into ConfigMap)
+# ---------------------------------------------------------------------------
+config:
+  createConfigMap: true
+  datahub:
+    gmsUrl: "http://datahub-datahub-gms.datahub.svc.cluster.local:8080"
+    kafkaBrokers: "datahub-prerequisites-kafka.datahub.svc.cluster.local:9092"
+  postgres:
+    host: "dataspoke-postgresql"
+    port: "5432"
+    db: "dataspoke"
+  redis:
+    host: "dataspoke-redis-master"
+    port: "6379"
+  qdrant:
+    host: "dataspoke-qdrant"
+    httpPort: "6333"
+    grpcPort: "6334"
+  temporal:
+    host: "dataspoke-temporal-frontend"
+    port: "7233"
+    namespace: "dataspoke"
+  llm:
+    provider: "gemini"
+    model: "gemini-2.0-flash"
+
+# ---------------------------------------------------------------------------
+# Shared secrets (injected into Secret)
+# ---------------------------------------------------------------------------
+secrets:
+  createSecret: true
+  postgres:
+    user: ""
+    password: ""
+  redis:
+    password: ""
+  qdrant:
+    apiKey: ""
+  llm:
+    apiKey: ""
+
+# ---------------------------------------------------------------------------
+# Network policy — cross-namespace access to DataHub
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: false
+  datahubNamespace: "datahub"

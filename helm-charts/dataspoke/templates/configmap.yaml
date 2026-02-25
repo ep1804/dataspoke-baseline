@@ -1,0 +1,24 @@
+{{- if .Values.config.createConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dataspoke.fullname" . }}-config
+  labels:
+    {{- include "dataspoke.labels" . | nindent 4 }}
+data:
+  DATASPOKE_DATAHUB_GMS_URL: {{ .Values.config.datahub.gmsUrl | quote }}
+  DATASPOKE_DATAHUB_KAFKA_BROKERS: {{ .Values.config.datahub.kafkaBrokers | quote }}
+  DATASPOKE_POSTGRES_HOST: {{ .Values.config.postgres.host | quote }}
+  DATASPOKE_POSTGRES_PORT: {{ .Values.config.postgres.port | quote }}
+  DATASPOKE_POSTGRES_DB: {{ .Values.config.postgres.db | quote }}
+  DATASPOKE_REDIS_HOST: {{ .Values.config.redis.host | quote }}
+  DATASPOKE_REDIS_PORT: {{ .Values.config.redis.port | quote }}
+  DATASPOKE_QDRANT_HOST: {{ .Values.config.qdrant.host | quote }}
+  DATASPOKE_QDRANT_HTTP_PORT: {{ .Values.config.qdrant.httpPort | quote }}
+  DATASPOKE_QDRANT_GRPC_PORT: {{ .Values.config.qdrant.grpcPort | quote }}
+  DATASPOKE_TEMPORAL_HOST: {{ .Values.config.temporal.host | quote }}
+  DATASPOKE_TEMPORAL_PORT: {{ .Values.config.temporal.port | quote }}
+  DATASPOKE_TEMPORAL_NAMESPACE: {{ .Values.config.temporal.namespace | quote }}
+  DATASPOKE_LLM_PROVIDER: {{ .Values.config.llm.provider | quote }}
+  DATASPOKE_LLM_MODEL: {{ .Values.config.llm.model | quote }}
+{{- end }}

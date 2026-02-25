@@ -78,7 +78,14 @@ if [[ -d "$CHART_DIR" ]]; then
     -f "$CHART_DIR/values-dev.yaml" \
     -n "${NS}" \
     --set postgresql.auth.existingSecret=dataspoke-postgres-secret \
+    --set postgresql.auth.username="${DATASPOKE_POSTGRES_USER}" \
+    --set postgresql.auth.database="${DATASPOKE_POSTGRES_DB}" \
     --set redis.auth.existingSecret=dataspoke-redis-secret \
+    --set temporal.server.config.persistence.default.sql.user="${DATASPOKE_POSTGRES_USER}" \
+    --set temporal.server.config.persistence.default.sql.password="${DATASPOKE_POSTGRES_PASSWORD}" \
+    --set temporal.server.config.persistence.visibility.sql.user="${DATASPOKE_POSTGRES_USER}" \
+    --set temporal.server.config.persistence.visibility.sql.password="${DATASPOKE_POSTGRES_PASSWORD}" \
+    --set global.postgresql.auth.password="${DATASPOKE_POSTGRES_PASSWORD}" \
     --timeout 5m --wait
 else
   warn "Helm chart not found at $CHART_DIR — skipping Helm install."

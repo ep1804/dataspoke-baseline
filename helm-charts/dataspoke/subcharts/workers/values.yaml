@@ -1,0 +1,8 @@
+replicaCount: 1
+
+image:
+  repository: dataspoke/workers
+  tag: latest
+  pullPolicy: IfNotPresent
+
+resources: {}

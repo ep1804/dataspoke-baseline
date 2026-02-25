@@ -1,0 +1,44 @@
+apiVersion: v2
+name: dataspoke
+description: DataSpoke — sidecar extension for DataHub
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+dependencies:
+  # --- Application subcharts (custom) ---
+  - name: frontend
+    version: "0.1.0"
+    repository: "file://subcharts/frontend"
+    condition: frontend.enabled
+
+  - name: api
+    version: "0.1.0"
+    repository: "file://subcharts/api"
+    condition: api.enabled
+
+  - name: workers
+    version: "0.1.0"
+    repository: "file://subcharts/workers"
+    condition: workers.enabled
+
+  # --- Infrastructure subcharts (community) ---
+  - name: postgresql
+    version: "~18.5.0"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+
+  - name: redis
+    version: "~25.3.0"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+
+  - name: qdrant
+    version: "~1.17.0"
+    repository: "https://qdrant.github.io/qdrant-helm"
+    condition: qdrant.enabled
+
+  - name: temporal
+    version: "~0.73.0"
+    repository: "https://go.temporal.io/helm-charts"
+    condition: temporal.enabled
