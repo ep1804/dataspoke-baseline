@@ -58,7 +58,13 @@ The scaffold supports two categories of workflows (from MANIFESTO §4):
 │   ├── backend.md              # FastAPI/Python implementer
 │   ├── frontend.md             # Next.js/TypeScript implementer
 │   └── k8s-helm.md             # Helm/Kubernetes/Docker author
-├── settings.json               # Tool permission rules
+├── hooks/                      # Automated guardrail scripts
+│   ├── validate-commit.sh      # Enforce Conventional Commits, block AI trailers
+│   ├── protect-manifesto.sh    # Block MANIFESTO edits without explicit request
+│   ├── post-compact-context.sh # Reinject conventions after context compaction
+│   ├── auto-format.sh          # Auto-format Python/TypeScript on write (async)
+│   └── spec-propagation-reminder.sh  # Remind to propagate spec changes
+├── settings.json               # Tool permissions + hook configuration
 └── settings.local.json         # Local overrides (machine-specific approvals)
 ```
 
