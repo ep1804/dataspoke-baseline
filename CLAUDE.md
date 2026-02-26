@@ -117,7 +117,7 @@ Propagation stops at `spec/impl/` — these are logs of past work. When an upstr
 
 When both English (`_en.md`) and Korean (`_kr.md`) versions exist, they carry the same meaning. Read only the English version unless explicitly directed to read or modify a specific language version. When writing Korean documents, use the plain style (-다/-한다) instead of the polite honorific style (-입니다/-합니다).
 
-**Reference when implementing**: `DATAHUB_INTEGRATION.md` for any DataHub interaction; `API_DESIGN_PRINCIPLE_en.md` for any API design.
+**Reference when implementing**: `DATAHUB_INTEGRATION.md` for any DataHub interaction; `API_DESIGN_PRINCIPLE_en.md` for API design conventions; `spec/feature/API.md` for the full DataSpoke route catalogue, JWT auth model, middleware stack, error codes, and WebSocket channels.
 
 Use `/dataspoke-plan-write` to author new specs. It guides scope selection, gathers requirements through Q&A, reviews a writing plan, writes the document (via `plan-doc` conventions), and recommends AI scaffold updates.
 

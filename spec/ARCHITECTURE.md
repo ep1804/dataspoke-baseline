@@ -144,6 +144,8 @@ Three-tier URI structure:
 
 Supports RESTful CRUD and WebSocket channels for real-time streaming (alerts, validation progress).
 
+For the complete route catalogue, JWT authentication model, middleware stack, error catalogue, and WebSocket channel specs, see [`spec/feature/API.md`](feature/API.md).
+
 ```
 src/api/
 ├── routers/        # One router per user group + system health
