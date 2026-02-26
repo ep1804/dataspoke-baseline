@@ -79,7 +79,7 @@ DataSpoke consists of four components:
   │                   (Hub)----(DG)             │
   │                  /                          │
   │                 /                           │
-  │              (DG)                           │
+  │              (DA)                           │
   │                                             │
   └─────────────────────────────────────────────┘
                   UI Main Page

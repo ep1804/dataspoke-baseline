@@ -1,7 +1,5 @@
 # DEV_ENV — Local Development Environment
 
-> **Version**: 1.0 | **Status**: Draft | **Date**: 2026-02-25
-
 ## Table of Contents
 1. [Overview](#overview)
 2. [Goals & Non-Goals](#goals--non-goals)
@@ -160,6 +158,7 @@ DATASPOKE_DEV_KUBE_DATAHUB_CHART_VERSION=0.8.3
 # --- Port-Forward Ports (DataHub) --------------------------------------------
 DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_UI_PORT=9002
 DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_GMS_PORT=9004
+DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_KAFKA_PORT=9005
 
 # --- Port-Forward Ports (DataSpoke Infra) ------------------------------------
 DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_POSTGRES_PORT=9201
@@ -192,7 +191,7 @@ These variables are read by DataSpoke application code. In dev, they point to `l
 
 # --- DataHub Connection -------------------------------------------------------
 DATASPOKE_DATAHUB_GMS_URL=http://localhost:9004
-DATASPOKE_DATAHUB_KAFKA_BROKERS=localhost:9092
+DATASPOKE_DATAHUB_KAFKA_BROKERS=localhost:9005
 
 # --- PostgreSQL (DataSpoke operational DB) ------------------------------------
 DATASPOKE_POSTGRES_HOST=localhost
@@ -598,6 +597,7 @@ The application reads `DATASPOKE_*` environment variables from `dev_env/.env`:
 │                ──── DATASPOKE_QDRANT_HOST=localhost ────┼──► kubectl port-forward ──► qdrant pod
 │                ──── DATASPOKE_TEMPORAL_HOST=localhost ──┼──► kubectl port-forward ──► temporal pod
 │                ──── DATASPOKE_DATAHUB_GMS_URL ─────────┼──► kubectl port-forward ──► datahub-gms pod
+│                ──── DATASPOKE_DATAHUB_KAFKA_BROKERS ───┼──► kubectl port-forward ──► kafka pod
 │                                                         │
 │  dataspoke-frontend ── calls dataspoke-api on :8000 ───┤
 │                                                         │

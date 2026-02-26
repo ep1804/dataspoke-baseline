@@ -491,7 +491,7 @@ Application runtime variables (`DATASPOKE_*`) are the same names in dev and prod
 |-------|-----------|---------|
 | Cluster & namespaces | `DATASPOKE_DEV_KUBE_CLUSTER`, `DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE`, `DATASPOKE_DEV_KUBE_DATASPOKE_NAMESPACE` | Cluster context and namespace targeting |
 | Chart versions | `DATASPOKE_DEV_KUBE_DATAHUB_PREREQUISITES_CHART_VERSION`, `DATASPOKE_DEV_KUBE_DATAHUB_CHART_VERSION` | Helm chart version pins |
-| Port-forward | `DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_*`, `DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_*` | Local port mappings |
+| Port-forward | `DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_*` (UI, GMS, Kafka), `DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_*` | Local port mappings |
 
 For production, secrets (`DATASPOKE_LLM_API_KEY`, `DATASPOKE_POSTGRES_PASSWORD`, `DATASPOKE_REDIS_PASSWORD`, etc.) are stored as Kubernetes Secrets and referenced by deployments. Configuration flows through the umbrella Helm chart: Helm values → ConfigMap/Secret → container environment. See [`spec/feature/HELM_CHART.md`](feature/HELM_CHART.md) for details.
 
@@ -519,6 +519,7 @@ dataspoke-baseline/
 ├── api/                # Standalone OpenAPI 3.0 specs (API-first)
 ├── dev_env/            # Local Kubernetes dev environment
 ├── helm-charts/        # Kubernetes deployment manifests
+├── docker-images/      # Dockerfiles for each service (multi-stage builds)
 ├── spec/               # Architecture and feature specifications
 │   ├── feature/        # Cross-cutting feature specs
 │   ├── feature/spoke/  # User-group-specific feature specs (DE/DA/DG)

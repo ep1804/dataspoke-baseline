@@ -12,13 +12,10 @@
       "Bash(git log*)",
       "Bash(git status*)",
       "Bash(grep:*)",
-      "Bash(helm install *)",
       "Bash(helm list *)",
       "Bash(helm repo *)",
       "Bash(helm show *)",
       "Bash(helm status *)",
-      "Bash(helm uninstall *)",
-      "Bash(helm upgrade *)",
       "Bash(kubectl cluster-info*)",
       "Bash(kubectl config current-context*)",
       "Bash(kubectl config get-contexts*)",
@@ -56,6 +53,8 @@
       "WebFetch(domain:code.claude.com)"
     ],
     "deny": [
+      "Bash(kubectl delete namespace *)",
+      "Bash(kubectl delete ns *)",
       "Bash(rm -rf *)",
       "Bash(sudo *)"
     ]

@@ -156,6 +156,7 @@ Documents authored so far (use `/dataspoke-plan-write` to add more):
 | Top-level | `spec/API_DESIGN_PRINCIPLE_en.md`, `spec/API_DESIGN_PRINCIPLE_kr.md` | REST API conventions |
 | Common feature | `spec/feature/API.md` | API layer design and shared infrastructure |
 | Common feature | `spec/feature/DEV_ENV.md` | Local Kubernetes dev environment specification |
+| Common feature | `spec/feature/HELM_CHART.md` | DataSpoke umbrella Helm chart for Kubernetes deployment |
 | Spoke feature | *(none yet)* | User-group-specific feature specs — next authoring target |
 | Impl plan | `spec/impl/20260220_datahub_api_skill.md` | DataHub API skill design and implementation |
 

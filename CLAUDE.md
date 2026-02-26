@@ -68,6 +68,10 @@ src/workflows/  — Temporal workflows
 src/shared/     — DataHub client wrappers, shared models
 api/            — Standalone OpenAPI 3.0 spec (API-first design)
 helm-charts/    — Kubernetes deployment
+docker-images/  — Dockerfiles for each service (multi-stage builds)
+tests/          — Unit, integration, E2E test suites
+migrations/     — Alembic database migrations
+config/         — Environment-specific configuration
 ref/            — External source code for AI reference (version-locked to dev_env)
 ```
 

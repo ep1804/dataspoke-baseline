@@ -1,7 +1,5 @@
 # HELM_CHART — DataSpoke Umbrella Helm Chart
 
-> **Version**: 1.0 | **Status**: Draft | **Date**: 2026-02-25
-
 ## Table of Contents
 1. [Overview](#overview)
 2. [Chart Structure](#chart-structure)

@@ -22,6 +22,7 @@ source "$SCRIPT_DIR/.env"
 NS="${DATASPOKE_DEV_KUBE_DATAHUB_NAMESPACE}"
 UI_PORT="${DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_UI_PORT:-9002}"
 GMS_PORT="${DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_GMS_PORT:-9004}"
+KAFKA_PORT="${DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_KAFKA_PORT:-9005}"
 
 # ---------------------------------------------------------------------------
 # --stop: kill running port-forwards and clean up
@@ -83,6 +84,11 @@ GMS_SVC="datahub-datahub-gms"
 kubectl get svc "$GMS_SVC" -n "${NS}" >/dev/null 2>&1 \
   || error "Service '$GMS_SVC' not found in namespace '${NS}'."
 
+# Kafka service (from datahub-prerequisites)
+KAFKA_SVC="datahub-prerequisites-kafka"
+kubectl get svc "$KAFKA_SVC" -n "${NS}" >/dev/null 2>&1 \
+  || error "Service '$KAFKA_SVC' not found in namespace '${NS}'."
+
 # ---------------------------------------------------------------------------
 # Start port-forwards in the background
 # ---------------------------------------------------------------------------
@@ -92,14 +98,18 @@ UI_PID=$!
 kubectl port-forward --namespace "${NS}" "svc/${GMS_SVC}" "${GMS_PORT}:8080" >/dev/null 2>&1 &
 GMS_PID=$!
 
+kubectl port-forward --namespace "${NS}" "svc/${KAFKA_SVC}" "${KAFKA_PORT}:9092" >/dev/null 2>&1 &
+KAFKA_PID=$!
+
 # Write PIDs
 echo "$UI_PID" > "$PID_FILE"
 echo "$GMS_PID" >> "$PID_FILE"
+echo "$KAFKA_PID" >> "$PID_FILE"
 
 # Brief pause to let port-forwards establish
 sleep 1
 
-# Verify both are still running
+# Verify all are still running
 if ! kill -0 "$UI_PID" 2>/dev/null; then
   rm -f "$PID_FILE"
   error "Frontend port-forward failed to start."
@@ -109,13 +119,19 @@ if ! kill -0 "$GMS_PID" 2>/dev/null; then
   rm -f "$PID_FILE"
   error "GMS port-forward failed to start."
 fi
+if ! kill -0 "$KAFKA_PID" 2>/dev/null; then
+  kill "$UI_PID" "$GMS_PID" 2>/dev/null || true
+  rm -f "$PID_FILE"
+  error "Kafka port-forward failed to start."
+fi
 
 info "Port-forwards started in background."
 echo ""
 echo "  DataHub UI:       http://localhost:${UI_PORT}"
 echo "  DataHub GMS:      http://localhost:${GMS_PORT}"
+echo "  DataHub Kafka:    localhost:${KAFKA_PORT}"
 echo "  Credentials:      datahub / datahub"
 echo ""
-echo "  PIDs: UI=$UI_PID, GMS=$GMS_PID (saved to $PID_FILE)"
+echo "  PIDs: UI=$UI_PID, GMS=$GMS_PID, Kafka=$KAFKA_PID (saved to $PID_FILE)"
 echo "  Stop with: $0 --stop"
 echo ""
