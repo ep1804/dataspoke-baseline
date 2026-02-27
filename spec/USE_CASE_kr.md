@@ -27,7 +27,7 @@ Imazon은 설립 15년차 온라인 서점이다. 데이터 환경은 오랜 유
 | [유스케이스 1: Deep Ingestion — 레거시 도서 카탈로그 보강](#유스케이스-1-deep-ingestion--레거시-도서-카탈로그-보강) | DE | 심층 기술 사양 인제스천 |
 | [유스케이스 2: Online Validator — 추천 파이프라인 검증](#유스케이스-2-online-validator--추천-파이프라인-검증) | DE / DA | 온라인 데이터 검증기 |
 | [유스케이스 3: Predictive SLA — 배송 파이프라인 조기 경보](#유스케이스-3-predictive-sla--배송-파이프라인-조기-경보) | DE | 온라인 데이터 검증기 |
-| [유스케이스 4: Doc Suggestions — 인수 후 온톨로지 통합](#유스케이스-4-doc-suggestions--인수-후-온톨로지-통합) | DE | 자동 문서화 제안 |
+| [유스케이스 4: Doc Generation — 인수 후 온톨로지 통합](#유스케이스-4-doc-suggestions--인수-후-온톨로지-통합) | DE | 자동 문서화 생성 |
 | [유스케이스 5: NL Search — GDPR 컴플라이언스 감사](#유스케이스-5-nl-search--gdpr-컴플라이언스-감사) | DA | 자연어 검색 |
 | [유스케이스 6: Metrics Dashboard — 전사 메타데이터 건강도](#유스케이스-6-metrics-dashboard--전사-메타데이터-건강도) | DG | 전사 메트릭 시계열 모니터링 |
 | [유스케이스 7: Text-to-SQL Metadata — AI 기반 장르 분석](#유스케이스-7-text-to-sql-metadata--ai-기반-장르-분석) | DA | Text-to-SQL 최적화 메타데이터 |
@@ -515,9 +515,9 @@ upstream = graph.get_aspect(dataset_urn, UpstreamLineageClass)
 
 ---
 
-### 유스케이스 4: Doc Suggestions — 인수 후 온톨로지 통합
+### 유스케이스 4: Doc Generation — 인수 후 온톨로지 통합
 
-**기능**: 자동 문서화 제안 (분류 체계/온톨로지 제안)
+**기능**: 자동 문서화 생성 (분류 체계/온톨로지 제안)
 
 #### 시나리오: Imazon이 디지털 스타트업 "eBookNow"를 인수
 
@@ -581,7 +581,7 @@ compare_chain = LLMChain(llm=llm, prompt=compare_prompt)
 ```
 
 ```
-DataSpoke Doc Suggestions — LLM 기반 시맨틱 클러스터링:
+DataSpoke Doc Generation — LLM 기반 시맨틱 클러스터링:
 
 분석 대상: 700 데이터셋 (스키마 + 설명 + 샘플 값을 LLM에 전송)
 감지된 시맨틱 클러스터: 38
@@ -786,7 +786,7 @@ LLM 마이그레이션 계획: 폐기 대상 테이블별 단계별 SQL 마이�
 
 #### DataHub 연동 포인트
 
-Doc Suggestions는 **읽기 + 쓰기** 소비자이다. 클러스터링 분석을 위해 스키마와 속성을 읽고, 폐기 마커와 태그를 DataHub에 다시 기록한다:
+Doc Generation는 **읽기 + 쓰기** 소비자이다. 클러스터링 분석을 위해 스키마와 속성을 읽고, 폐기 마커와 태그를 DataHub에 다시 기록한다:
 
 | 분석 단계 | DataHub Aspect | REST API Path | 반환/저장 내용 |
 |----------|---------------|---------------|--------------|
@@ -839,11 +839,11 @@ emitter.emit_mcp(MetadataChangeProposalWrapper(
 | **LLM 일관성 규칙 엔진** | LLM이 신규/수정 파이프라인의 SQL 패턴을 온톨로지 규칙(R1–R5) 대비 분석; 정규식 규칙이 놓치는 의미적 위반 탐지; 자동 수정 SQL 생성 | DataHub에는 규칙 정의, 위반 스캔, 코드 분석 없음 |
 | **LLM 소스 코드 분석기** | 연결된 저장소 스캔; 코드 스니펫 + 스키마 컨텍스트를 LLM에 전송하여 비즈니스 수준 컬럼 설명 생성. 대규모 코드베이스에 LangChain `RecursiveCharacterTextSplitter` 사용. | DataHub에는 소스 코드 스캔이나 해석 기능 없음 |
 | **LLM 차별화 보고서 생성기** | LLM이 테이블 쌍을 전체적으로 비교(스키마, 리니지, 코드 사용, 샘플 데이터)하고 근거가 포함된 구조화된 병합/유지/폐기 권장 생성 | DataHub는 개별 스키마를 저장하지만 비교나 조치 추론 불가 |
-| **온톨로지/분류 체계 빌더** *(UC8과 공유)* | 메타데이터에서 비즈니스 개념 분류 체계를 구축·유지하는 재사용 가능한 LLM 기반 서비스. 개념 카테고리, 계층적 관계, 데이터셋-개념 매핑을 Doc Suggestions(UC4)와 다관점 오버뷰(UC8) 양쪽에 제공. 아래 공통 컴포넌트 참조. | DataHub에는 분류 체계 구축이나 LLM 연동 없음 |
+| **온톨로지/분류 체계 빌더** *(UC8과 공유)* | 메타데이터에서 비즈니스 개념 분류 체계를 구축·유지하는 재사용 가능한 LLM 기반 서비스. 개념 카테고리, 계층적 관계, 데이터셋-개념 매핑을 Doc Generation(UC4)와 다관점 오버뷰(UC8) 양쪽에 제공. 아래 공통 컴포넌트 참조. | DataHub에는 분류 체계 구축이나 LLM 연동 없음 |
 
 #### 결과
 
-| 지표 | 수동 통합 | DataSpoke Doc Suggestions |
+| 지표 | 수동 통합 | DataSpoke Doc Generation |
 |-----|---------|---------------------------|
 | 제안까지 소요 시간 | ~3개월 (수동 감사) | 수 시간 (자동 클러스터링) |
 | 카탈로그 AI 준비도 | 58% | 91% |
@@ -1507,7 +1507,7 @@ for dataset_urn in dataset_urns:
 
 ## 공통 컴포넌트: 공유 온톨로지/분류 체계 빌더
 
-UC4(Doc Suggestions)와 UC8(Multi-Perspective Overview)는 모두 데이터셋을 비즈니스 개념 카테고리에 매핑해야 한다 — UC4는 시맨틱 클러스터링과 온톨로지 통합을 위해, UC8은 그래프 노드 그룹핑과 도메인 분류를 위해. 이 로직을 중복하지 않고, DataSpoke는 재사용 가능한 백엔드 서비스로 **공유 온톨로지/분류 체계 빌더**를 제공한다.
+UC4(Doc Generation)와 UC8(Multi-Perspective Overview)는 모두 데이터셋을 비즈니스 개념 카테고리에 매핑해야 한다 — UC4는 시맨틱 클러스터링과 온톨로지 통합을 위해, UC8은 그래프 노드 그룹핑과 도메인 분류를 위해. 이 로직을 중복하지 않고, DataSpoke는 재사용 가능한 백엔드 서비스로 **공유 온톨로지/분류 체계 빌더**를 제공한다.
 
 **아키텍처:**
 
@@ -1551,7 +1551,7 @@ UC4(Doc Suggestions)와 UC8(Multi-Perspective Overview)는 모두 데이터셋�
 | **레거시 도서 카탈로그 보강** | DE | Deep Ingestion | 수동 메타데이터 입력, 리니지 없음 | 자동 다중 소스 보강 | 89% 보강, 210개 리니지 엣지 |
 | **추천 파이프라인 검증** | DE / DA | Online Validator | ~30% 실패율 (불량 데이터) | <5% 실패 (사전 검증) | 사고 83% 감소 |
 | **배송 SLA 조기 경보** | DE | Online Validator | 위반 후 사후 알림 | 2시간 이상 사전 예측 경보 | SLA 위반 제로 |
-| **인수 후 온톨로지** | DE | Doc Suggestions | 3개월 수동 통합 | 수 시간 내 자동 제안 | 수십 배 빠름 |
+| **인수 후 온톨로지** | DE | Doc Generation | 3개월 수동 통합 | 수 시간 내 자동 제안 | 수십 배 빠름 |
 | **GDPR 컴플라이언스 감사** | DA | NL Search | 4–6시간 수동 검색 | 2–5분 자동 검색 | 98% 시간 절약 |
 | **전사 메타데이터 건강도** | DG | Metrics Dashboard | 분기별 수동 감사 | 실시간 상시 모니터링 | 80% 효율 향상 |
 | **AI 기반 장르 분석** | DA | Text-to-SQL Metadata | 수동 SQL, 잘못된 조인/값 | 90% 첫 시도 정확도 | ~60% SQL 정확도 향상 |

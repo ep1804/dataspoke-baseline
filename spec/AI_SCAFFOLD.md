@@ -166,7 +166,7 @@ Documents authored so far (use `/dataspoke-plan-write` to add more):
 | Spoke feature | *(none yet)* | User-group-specific feature specs — next authoring target |
 | Impl plan | `spec/impl/20260220_datahub_api_skill.md` | DataHub API skill design and implementation |
 
-**Next steps**: Author user-group-specific feature specs in `spec/feature/spoke/` using `/dataspoke-plan-write` (scope 3). The MANIFESTO defines the following features awaiting specs: Deep Technical Spec Ingestion (DE), Online Data Validator (DE/DA), Automated Documentation Suggestions (DE), Natural Language Search (DA), Text-to-SQL Optimized Metadata (DA), Enterprise Metrics Time-Series Monitoring (DG), Multi-Perspective Data Overview (DG).
+**Next steps**: Author user-group-specific feature specs in `spec/feature/spoke/` using `/dataspoke-plan-write` (scope 3). The MANIFESTO defines the following features awaiting specs: Deep Technical Spec Ingestion (DE), Online Data Validator (DE/DA), Automated Documentation Generation (DE), Natural Language Search (DA), Text-to-SQL Optimized Metadata (DA), Enterprise Metrics Time-Series Monitoring (DG), Multi-Perspective Data Overview (DG).
 
 The project is in the **specification and dev-environment phase**. The scaffold is ready for an organization to fork and begin AI-assisted implementation of their custom Spoke.
 

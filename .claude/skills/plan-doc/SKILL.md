@@ -69,7 +69,7 @@ If writing about a specific feature, also check for an existing `spec/feature/<F
 
 | Destination | When to use | Document type |
 |-------------|-------------|---------------|
-| `spec/feature/spoke/<FEATURE>.md` | User-group-specific feature from the MANIFESTO: DE (Ingestion, Online Validator, Doc Suggestions), DA (NL Search, Text-to-SQL Metadata, Validator), DG (Metrics Dashboard, Multi-Perspective Overview) | Spoke Feature Spec (see template A) |
+| `spec/feature/spoke/<FEATURE>.md` | User-group-specific feature from the MANIFESTO: DE (Ingestion, Online Validator, Doc Generation), DA (NL Search, Text-to-SQL Metadata, Validator), DG (Metrics Dashboard, Multi-Perspective Overview) | Spoke Feature Spec (see template A) |
 | `spec/feature/<FEATURE>.md` | Common/cross-cutting feature not specific to one user group (API design, dev environment, shared services) | Common Feature Spec (see template A, without user-group context) |
 | `spec/impl/YYYYMMDD_<topic>.md` | Decision plan, ADR, implementation note, rollout plan, minor change, or anything with a specific date/milestone | Plan Log (see template B) |
 | `spec/<DOC>.md` (top-level) | Only for project-wide topics that belong alongside MANIFESTO and ARCHITECTURE | Top-level spec (use template A without feature context) |
@@ -85,7 +85,7 @@ Use the template for the chosen destination. Follow these style rules for both:
 - Tables for comparisons and field definitions
 - Code blocks for schemas, interfaces, API examples
 - User group names must match the MANIFESTO exactly: **DE** (Data Engineering), **DA** (Data Analysis), **DG** (Data Governance)
-- Feature names must match the MANIFESTO: **Deep Technical Spec Ingestion**, **Online Data Validator**, **Automated Documentation Suggestions**, **Natural Language Search**, **Text-to-SQL Optimized Metadata**, **Enterprise Metrics Time-Series Monitoring**, **Multi-Perspective Data Overview**
+- Feature names must match the MANIFESTO: **Deep Technical Spec Ingestion**, **Online Data Validator**, **Automated Documentation Generation**, **Natural Language Search**, **Text-to-SQL Optimized Metadata**, **Enterprise Metrics Time-Series Monitoring**, **Multi-Perspective Data Overview**
 - Product name is always `DataSpoke` (no space)
 - API URIs follow the three-tier pattern: `/api/v1/spoke/common/…` (shared), `/api/v1/spoke/[de|da|dg]/…` (user-group), `/api/v1/hub/…` (DataHub pass-through)
 - For DataHub integration details, reference `DATAHUB_INTEGRATION.md` rather than duplicating SDK patterns or aspect catalogs

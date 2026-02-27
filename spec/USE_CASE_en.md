@@ -27,7 +27,7 @@ Imazon is a 15-year-old online bookstore. Its data landscape reflects years of o
 | [Use Case 1: Deep Ingestion — Legacy Book Catalog Enrichment](#use-case-1-deep-ingestion--legacy-book-catalog-enrichment) | DE | Deep Technical Spec Ingestion |
 | [Use Case 2: Online Validator — Recommendation Pipeline Verification](#use-case-2-online-validator--recommendation-pipeline-verification) | DE / DA | Online Data Validator |
 | [Use Case 3: Predictive SLA — Fulfillment Pipeline Early Warning](#use-case-3-predictive-sla--fulfillment-pipeline-early-warning) | DE | Online Data Validator |
-| [Use Case 4: Doc Suggestions — Post-Acquisition Ontology Reconciliation](#use-case-4-doc-suggestions--post-acquisition-ontology-reconciliation) | DE | Automated Documentation Suggestions |
+| [Use Case 4: Doc Generation — Post-Acquisition Ontology Reconciliation](#use-case-4-doc-generation--post-acquisition-ontology-reconciliation) | DE | Automated Documentation Generation |
 | [Use Case 5: NL Search — GDPR Compliance Audit](#use-case-5-nl-search--gdpr-compliance-audit) | DA | Natural Language Search |
 | [Use Case 6: Metrics Dashboard — Enterprise Metadata Health](#use-case-6-metrics-dashboard--enterprise-metadata-health) | DG | Enterprise Metrics Time-Series Monitoring |
 | [Use Case 7: Text-to-SQL Metadata — AI-Assisted Genre Analysis](#use-case-7-text-to-sql-metadata--ai-assisted-genre-analysis) | DA | Text-to-SQL Optimized Metadata |
@@ -515,9 +515,9 @@ upstream = graph.get_aspect(dataset_urn, UpstreamLineageClass)
 
 ---
 
-### Use Case 4: Doc Suggestions — Post-Acquisition Ontology Reconciliation
+### Use Case 4: Doc Generation — Post-Acquisition Ontology Reconciliation
 
-**Feature**: Automated Documentation Suggestions (taxonomy/ontology proposals)
+**Feature**: Automated Documentation Generation (taxonomy/ontology proposals)
 
 #### Scenario: Imazon Acquires "eBookNow" Digital Startup
 
@@ -581,7 +581,7 @@ compare_chain = LLMChain(llm=llm, prompt=compare_prompt)
 ```
 
 ```
-DataSpoke Doc Suggestions — LLM-Powered Semantic Clustering:
+DataSpoke Doc Generation — LLM-Powered Semantic Clustering:
 
 Analyzed: 700 datasets (schema + descriptions + sample values sent to LLM)
 Semantic clusters detected: 38
@@ -787,7 +787,7 @@ LLM Migration Plan: Step-by-step SQL migration scripts auto-generated for each
 
 #### DataHub Integration Points
 
-Doc Suggestions is a **read + write** consumer. It reads schemas and properties for clustering analysis, then writes deprecation markers and tags back to DataHub:
+Doc Generation is a **read + write** consumer. It reads schemas and properties for clustering analysis, then writes deprecation markers and tags back to DataHub:
 
 | Analysis Step | DataHub Aspect | REST API Path | What It Returns / Stores |
 |--------------|---------------|---------------|--------------------------|
@@ -840,11 +840,11 @@ emitter.emit_mcp(MetadataChangeProposalWrapper(
 | **LLM Consistency Rule Engine** | LLM analyzes SQL patterns in new/modified pipelines against ontology rules (R1–R5); detects semantic violations that regex-based rules miss; generates auto-correction SQL | DataHub has no rule definition, violation scanning, or code analysis |
 | **LLM Source Code Analyzer** | Scan linked repositories; send code snippets + schema context to LLM for business-level column description generation. Uses LangChain `RecursiveCharacterTextSplitter` for large codebases. | DataHub has no source code scanning or interpretation capability |
 | **LLM Differentiation Report Generator** | LLM compares table pairs holistically (schema, lineage, code usage, sample data) and generates structured merge/keep/deprecate recommendations with rationale | DataHub stores individual schemas but cannot compare or reason about actions |
-| **Ontology/Taxonomy Builder** *(shared with UC8)* | Reusable LLM-based service that builds and maintains business concept taxonomies from metadata. Provides concept categories, hierarchical relationships, and dataset-to-concept mappings consumed by both Doc Suggestions (UC4) and Multi-Perspective Overview (UC8). See cross-cutting note below. | DataHub has no taxonomy construction or LLM integration |
+| **Ontology/Taxonomy Builder** *(shared with UC8)* | Reusable LLM-based service that builds and maintains business concept taxonomies from metadata. Provides concept categories, hierarchical relationships, and dataset-to-concept mappings consumed by both Doc Generation (UC4) and Multi-Perspective Overview (UC8). See cross-cutting note below. | DataHub has no taxonomy construction or LLM integration |
 
 #### Outcome
 
-| Metric | Manual Reconciliation | DataSpoke Doc Suggestions |
+| Metric | Manual Reconciliation | DataSpoke Doc Generation |
 |--------|----------------------|---------------------------|
 | Time to proposal | ~3 months (manual audit) | Hours (automated clustering) |
 | Catalog AI-readiness | 58% | 91% |
@@ -1508,7 +1508,7 @@ for dataset_urn in dataset_urns:
 
 ## Cross-Cutting: Shared Ontology/Taxonomy Builder
 
-UC4 (Doc Suggestions) and UC8 (Multi-Perspective Overview) both require mapping datasets to business concept categories — UC4 for semantic clustering and ontology reconciliation, UC8 for graph node grouping and domain classification. Rather than duplicating this logic, DataSpoke provides a **shared Ontology/Taxonomy Builder** as a reusable backend service.
+UC4 (Doc Generation) and UC8 (Multi-Perspective Overview) both require mapping datasets to business concept categories — UC4 for semantic clustering and ontology reconciliation, UC8 for graph node grouping and domain classification. Rather than duplicating this logic, DataSpoke provides a **shared Ontology/Taxonomy Builder** as a reusable backend service.
 
 **Architecture:**
 
@@ -1552,7 +1552,7 @@ UC4 (Doc Suggestions) and UC8 (Multi-Perspective Overview) both require mapping 
 | **Legacy Book Catalog Enrichment** | DE | Deep Ingestion | Manual metadata entry, no lineage | Automated multi-source enrichment | 89% enrichment, 210 lineage edges |
 | **Recommendation Pipeline Verification** | DE / DA | Online Validator | ~30% failure rate from bad data | <5% failure with pre-verification | 83% reduction in incidents |
 | **Fulfillment SLA Early Warning** | DE | Online Validator | Reactive alerts after breach | Predictive warnings 2+ hours early | Zero SLA breaches |
-| **Post-Acquisition Ontology** | DE | Doc Suggestions | 3-month manual reconciliation | Automated proposal in hours | Orders-of-magnitude faster |
+| **Post-Acquisition Ontology** | DE | Doc Generation | 3-month manual reconciliation | Automated proposal in hours | Orders-of-magnitude faster |
 | **GDPR Compliance Audit** | DA | NL Search | 4–6 hours manual search | 2–5 minutes automated | 98% time savings |
 | **Enterprise Metadata Health** | DG | Metrics Dashboard | Quarterly manual audits | Real-time continuous monitoring | 80% efficiency gain |
 | **AI-Assisted Genre Analysis** | DA | Text-to-SQL Metadata | Manual SQL, wrong joins/values | 90% first-attempt accuracy | ~60% SQL accuracy gain |

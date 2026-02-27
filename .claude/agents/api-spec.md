@@ -21,8 +21,8 @@ All rules below are derived from `spec/API_DESIGN_PRINCIPLE_en.md`. That documen
 
 - **Noun-only URIs**: use resource nouns, never verbs; HTTP method expresses the action
 - **Hierarchical paths**: `/{classifier}/{id}/{sub-classifier}/{id}` (e.g., `/datasets/ds_001/quality-rules`)
-- **Plural path → list response**: a plural-form path always returns an array; a singular path (with ID) returns a single object
-- **Meta-classifiers**: use `attrs` for attribute groups, `methods` for business actions beyond CRUD, `events` for audit/lifecycle history (e.g., `/connectors/c_01/methods/test`, `/ingestion-runs/r_99/events`)
+- **Collection vs single**: a classifier path without an identifier returns a collection (list); a path with an identifier returns a single object. Use **singular nouns** for classifiers (e.g., `/product`, `/metric`, not `/products`, `/metrics`)
+- **Meta-classifiers**: use `attr` for attribute groups, `method` for business actions beyond CRUD, `event` for audit/lifecycle history (e.g., `/connectors/c_01/method/test`, `/ingestion-runs/r_99/event`)
 - **Query params for filtering/sorting/pagination**: `limit` (default 20, max 100), `offset`, `sort`, filter fields — never encode these in the path
 - **snake_case** for all JSON field names (Pydantic default)
 - **Content/Metadata separation**: list responses wrap the resource array under a named key and include pagination metadata at the top level (see `spec/API_DESIGN_PRINCIPLE_en.md` §1.3)

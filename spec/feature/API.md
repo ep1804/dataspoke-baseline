@@ -37,9 +37,9 @@ structure that maps directly to the user-group taxonomy defined in the MANIFESTO
 /api/v1/hub/…              — DataHub pass-through (optional ingress for clients)
 ```
 
-The API is the **only** component that accesses DataHub, PostgreSQL, Redis, Qdrant, and
-Temporal directly on behalf of UI and AI-agent clients. Backend services and Temporal
-workers are internal and not exposed over HTTP.
+The API is the only **HTTP-facing** component for external clients (the portal UI and
+AI agents). Backend services and Temporal workers also access DataHub, PostgreSQL, Redis,
+Qdrant, and Temporal directly but are not exposed over HTTP.
 
 ```
 Browser / AI Agent
@@ -75,9 +75,9 @@ DataSpoke uses **JWT (JSON Web Tokens)** for stateless authentication.
 | Refresh token | 7 days | HttpOnly cookie |
 
 Token issuance and refresh are handled at:
-- `POST /api/v1/auth/token` — issue access + refresh tokens (credential exchange)
-- `POST /api/v1/auth/token/refresh` — issue new access token from refresh token
-- `POST /api/v1/auth/token/revoke` — revoke refresh token (logout)
+- `POST /auth/token` — issue access + refresh tokens (credential exchange)
+- `POST /auth/token/refresh` — issue new access token from refresh token
+- `POST /auth/token/revoke` — revoke refresh token (logout)
 
 ### JWT Claims
 
@@ -100,11 +100,12 @@ belong to multiple groups. The middleware enforces that a request targeting
 | URI tier | Required group claim | Accessible to |
 |----------|---------------------|---------------|
 | `/spoke/common/…` | any valid group | DE, DA, DG |
-| `/spoke/de/…` | `"de"` | DE (and admins) |
-| `/spoke/da/…` | `"da"` | DA (and admins) |
+| `/spoke/de/…` | `"de"` | DE (and admins) — reserved; no routes currently defined |
+| `/spoke/da/…` | `"da"` | DA (and admins) — reserved; no routes currently defined |
 | `/spoke/dg/…` | `"dg"` | DG (and admins) |
 | `/hub/…` | any valid group | DE, DA, DG |
 | `/auth/…` | none (public) | unauthenticated clients |
+| `/admin/…` | `"admin"` | admins only |
 
 ### Admin Role
 
@@ -123,7 +124,7 @@ Client                       DataSpoke API              Identity Store
   │◄── {access_token,             │
   │     refresh_token cookie} ────│
   │                               │
-  │── GET /spoke/common/data/{urn}/attr/ingestion_conf ►│
+  │── GET /spoke/common/data/{dataset_urn}/attr/ingestion/conf ►│
   │   Authorization: Bearer <at>  │── validate JWT, check groups ─► 200 OK
 ```
 
@@ -257,15 +258,14 @@ all datasets and bulk management.
 #### Search (`/spoke/common/search`)
 
 Natural language search over dataset metadata using vector similarity. Available to all
-user groups. The dataset-level endpoint accepts `?sql_context=true` to include
-text-to-SQL optimized column detail, sample values, and inferred join paths in the
-response — superseding the former dedicated text-to-SQL and join-paths paths.
+user groups. Accepts `?sql_context=true` to include text-to-SQL optimized column detail,
+sample values, and inferred join paths in the response — superseding the former dedicated
+text-to-SQL and join-paths paths.
 
 | Method | Path | Purpose | Feature | UC |
 |--------|------|---------|---------|-----|
-| `GET` | `/spoke/common/search` | Natural language search (`?q=…`) | Natural Language Search | UC5 |
-| `GET` | `/spoke/common/search/{dataset_urn}` | Search-indexed metadata (`?sql_context=true` for SQL context + join paths) | Natural Language Search, Text-to-SQL Metadata | UC5, UC7 |
-| `POST` | `/spoke/common/search/method/reindex` | Trigger reindex for a dataset | Natural Language Search | UC5 |
+| `GET` | `/spoke/common/search` | Natural language search (`?q=…`; add `?sql_context=true` for SQL context + join paths) | Natural Language Search, Text-to-SQL Metadata | UC5, UC7 |
+| `POST` | `/spoke/common/search/method/reindex` | Trigger reindex for a dataset (`?dataset_urn=…`) | Natural Language Search | UC5 |
 
 ### Data Governance (`/spoke/dg`)
 
@@ -282,7 +282,8 @@ rather than per-dataset observations.
 |--------|------|---------|---------|-----|
 | `GET` | `/spoke/dg/metric` | List all metrics (paginated; filterable by theme, status) | Enterprise Metrics Dashboard | UC6 |
 | `GET` | `/spoke/dg/metric/{metric_id}` | Get metric summary (identity, theme, active status) | Enterprise Metrics Dashboard | UC6 |
-| `GET` | `/spoke/dg/metric/{metric_id}/attr/conf` | Get metric definition (title, theme, measurement period, alarm setup, active status) | Enterprise Metrics Dashboard | UC6 |
+| `GET` | `/spoke/dg/metric/{metric_id}/attr` | Get metric attributes overview (theme, period, active status, alarm enabled) | Enterprise Metrics Dashboard | UC6 |
+| `GET` | `/spoke/dg/metric/{metric_id}/attr/conf` | Get full metric definition (title, theme, measurement period, alarm setup, active status) | Enterprise Metrics Dashboard | UC6 |
 | `PUT` | `/spoke/dg/metric/{metric_id}/attr/conf` | Create or replace metric definition | Enterprise Metrics Dashboard | UC6 |
 | `PATCH` | `/spoke/dg/metric/{metric_id}/attr/conf` | Update metric definition fields | Enterprise Metrics Dashboard | UC6 |
 | `DELETE` | `/spoke/dg/metric/{metric_id}/attr/conf` | Remove metric definition | Enterprise Metrics Dashboard | UC6 |
@@ -316,6 +317,10 @@ after JWT validation.
 |--------|------|---------|
 | `POST` | `/hub/graphql` | Proxy DataHub GraphQL queries |
 | `*` | `/hub/openapi/{path:path}` | Proxy DataHub REST OpenAPI endpoints (all methods) |
+
+### Admin (`/admin`)
+
+Routes for user management and system configuration. Accessible only to users with `"admin"` in the `groups` claim. Specific routes are defined in dedicated admin feature specs and are not catalogued here.
 
 ### System
 
@@ -392,8 +397,8 @@ definitions:
   instead of separate dry-run paths.
 - `event` — Immutable history log of occurrences on a resource. Always `GET`; supports
   `offset`/`limit` pagination and `sort=occurred_at_desc` (default order, newest first).
-  Supports `from`/`to` for time-range filtering. Sub-paths may be used to narrow by
-  outcome (e.g. `.../event/failure`, `.../event/success`), but the parent `.../event`
+  Supports `from`/`to` for time-range filtering. Sub-paths may be defined in feature specs
+  to narrow by outcome (e.g. `.../event/failure`, `.../event/success`), but the parent `.../event`
   path must remain and return all event types. All events returned at `.../event` and any
   of its sub-paths must share a **uniform top-level JSON structure** — the same field
   names and types (e.g. `event_type`, `occurred_at`, `status`, `detail`) — so that
@@ -460,8 +465,8 @@ All errors follow the standard envelope:
 
 | Status | When used |
 |--------|-----------|
-| `200 OK` | Successful read or action |
-| `201 Created` | Resource successfully created |
+| `200 OK` | Successful read, action, or `PUT` that replaces an existing resource |
+| `201 Created` | Resource successfully created (`POST`, or `PUT` targeting a new resource) |
 | `204 No Content` | Successful deletion |
 | `400 Bad Request` | Malformed request, missing required fields, invalid parameter values |
 | `401 Unauthorized` | Missing or expired access token |
@@ -484,6 +489,7 @@ All errors follow the standard envelope:
 | `DATASET_NOT_FOUND` | 404 | Dataset URN does not exist in DataHub |
 | `CONCEPT_NOT_FOUND` | 404 | Ontology concept ID not found |
 | `CONFIG_NOT_FOUND` | 404 | Ingestion config or validation config not found |
+| `METRIC_NOT_FOUND` | 404 | Metric ID does not exist |
 | `DUPLICATE_CONFIG` | 409 | Config with same name already exists |
 | `INGESTION_RUNNING` | 409 | An ingestion run is already in progress for this config |
 | `VALIDATION_RUNNING` | 409 | A validation run is already in progress for this config |

@@ -99,7 +99,7 @@ DataSpoke consists of four components:
 
 - **Deep Technical Spec Ingestion**: Collects platform-specific technical metadata — storage compression formats, Kafka topic replication levels, and similar details.
 - **Online Data Validator**: Time-series monitoring and validation of data. Provides an API for dry-run validation (without writing to the store) and point-in-time validation against historical data.
-- **Automated Documentation Suggestions**:
+- **Automated Documentation Generation**:
   - Generates documentation from source code references (e.g. GitHub links).
   - Highlights differences between similar tables.
   - Proposes enterprise-wide taxonomy and ontology standards; once approved, suggests downstream modifications.

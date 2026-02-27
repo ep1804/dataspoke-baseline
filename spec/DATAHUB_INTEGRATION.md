@@ -64,7 +64,7 @@ Each DataSpoke feature has a clear integration direction:
 | Deep Ingestion | DE | **Write** | Emit enriched metadata (properties, lineage, tags, ownership) |
 | Online Validator | DE/DA | **Read** | Query profiles, operations, lineage, assertions |
 | Predictive SLA | DE | **Read** | Query timeseries profiles, lineage for anomaly detection |
-| Doc Suggestions | DE | **Read + Write** | Read schemas for clustering; write deprecation, tags |
+| Doc Generation | DE | **Read + Write** | Read schemas for clustering; write deprecation, tags |
 | NL Search | DA | **Read** | Read properties, tags, lineage, usage for vector index |
 | Metrics Dashboard | DG | **Read** | Read properties, ownership, schemas, tags for health scoring |
 
@@ -89,7 +89,7 @@ emitter = DatahubRestEmitter(
 )
 ```
 
-Read-only features (Validator, Predictive SLA, NL Search, Metrics Dashboard) use `DataHubGraph` only. Features that write back (Deep Ingestion, Doc Suggestions) additionally use `DatahubRestEmitter`.
+Read-only features (Validator, Predictive SLA, NL Search, Metrics Dashboard) use `DataHubGraph` only. Features that write back (Deep Ingestion, Doc Generation) additionally use `DatahubRestEmitter`.
 
 ### URN Construction
 
@@ -144,7 +144,7 @@ Assertions are stored on `assertion` entities (not `dataset` entities):
 
 Which features read (R) or write (W) each aspect:
 
-| Aspect | Deep Ingestion | Validator | Predictive SLA | Doc Suggestions | NL Search | Metrics Dashboard |
+| Aspect | Deep Ingestion | Validator | Predictive SLA | Doc Generation | NL Search | Metrics Dashboard |
 |--------|:---:|:---:|:---:|:---:|:---:|:---:|
 | `datasetProperties` | W | R | — | R | R | R |
 | `schemaMetadata` | W | R | — | R | R | R |
@@ -302,7 +302,7 @@ result = graph.execute_graphql("""
 """ % dataset_urn)
 ```
 
-**Used by**: Predictive SLA (downstream impact), Doc Suggestions (shared consumers), NL Search (marketing lineage).
+**Used by**: Predictive SLA (downstream impact), Doc Generation (shared consumers), NL Search (marketing lineage).
 
 ### Entity Enumeration by Domain
 
@@ -379,7 +379,7 @@ while True:
 | Event Aspect | Consumer | Action |
 |-------------|---------|--------|
 | `datasetProperties` | NL Search | Re-generate embedding, update Qdrant |
-| `schemaMetadata` | NL Search, Doc Suggestions | Re-embed schema, detect new clusters |
+| `schemaMetadata` | NL Search, Doc Generation | Re-embed schema, detect new clusters |
 | `datasetProfile` | Validator, Predictive SLA | Run anomaly detection on new profile |
 | `operation` | Predictive SLA | Check freshness against SLA targets |
 | `ownership` | Metrics Dashboard | Re-compute department health score |
@@ -407,7 +407,7 @@ while True:
 
 ### Circuit Breaker
 
-For features that scan many datasets (Metrics Dashboard, Doc Suggestions clustering):
+For features that scan many datasets (Metrics Dashboard, Doc Generation clustering):
 
 ```
 If 5 consecutive DataHub API calls fail:

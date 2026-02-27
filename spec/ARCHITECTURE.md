@@ -135,10 +135,10 @@ src/frontend/
 Three-tier URI structure:
 
 ```
-/api/v1/spoke/common/...   → Common features shared across user groups (ontology, quality score)
-/api/v1/spoke/de/...       → Data Engineering (ingestion, validation, doc suggestions)
-/api/v1/spoke/da/...       → Data Analysis (NL search, text-to-SQL, validation)
-/api/v1/spoke/dg/...       → Data Governance (metrics dashboard, multi-perspective overview)
+/api/v1/spoke/common/...   → Cross-cutting features: ontology, ingestion, validation, generation, search
+/api/v1/spoke/de/...       → Reserved for DE-exclusive features (no routes currently defined)
+/api/v1/spoke/da/...       → Reserved for DA-exclusive features (no routes currently defined)
+/api/v1/spoke/dg/...       → Data Governance: metrics dashboard, multi-perspective overview
 /api/v1/hub/...            → DataHub pass-through (optional ingress for clients)
 ```
 
@@ -148,7 +148,7 @@ For the complete route catalogue, JWT authentication model, middleware stack, er
 
 ```
 src/api/
-├── routers/        # One router per user group + system health
+├── routers/        # Routers per API tier (common, dg, hub, auth) + system health
 ├── schemas/        # Pydantic request/response models
 ├── middleware/      # Auth, logging, rate limiting, API convention enforcement
 └── main.py         # FastAPI application entry
@@ -230,7 +230,7 @@ Covers UC2 (Pipeline Verification), UC3 (Predictive SLA). Shared across DE and D
 AI Agent / User
       │
       ▼
-API: /api/v1/spoke/[de|da]/validator
+API: /api/v1/spoke/common/data/{dataset_urn}/attr/validation/method/run
       │
       ▼
 Validator Service
@@ -254,7 +254,7 @@ Covers UC5 (NL Search), UC7 (Text-to-SQL Metadata).
 User Query (natural language)
       │
       ▼
-API: /api/v1/spoke/da/search (or /text-to-sql/context)
+API: /api/v1/spoke/common/search  (add ?sql_context=true for Text-to-SQL context)
       │
       ▼
 Search / Context Service
@@ -270,7 +270,7 @@ Search Results / SQL Context (ranked, enriched, conversational)
 
 ### 4. Ontology & Documentation
 
-Covers UC4 (Doc Suggestions), UC8 (Multi-Perspective Overview). Both use the shared Ontology/Taxonomy Builder (see [Shared Services](#shared-services)).
+Covers UC4 (Doc Generation), UC8 (Multi-Perspective Overview). Both use the shared Ontology/Taxonomy Builder (see [Shared Services](#shared-services)).
 
 ```
 All Datasets (schema, descriptions, tags, lineage, code refs)
@@ -282,7 +282,7 @@ Ontology/Taxonomy Builder (LLM-powered)
   3. Propose canonical entities + consistency rules
   4. Weekly drift/violation scanning
       │
-      ├──► UC4: Doc Suggestions (ontology proposals, similar-table diffs, code-based docs)
+      ├──► UC4: Doc Generation (ontology proposals, similar-table diffs, code-based docs)
       └──► UC8: Multi-Perspective Overview (graph node grouping, domain classification)
 ```
 
@@ -302,8 +302,8 @@ Metrics Collector
   5. Persist to PostgreSQL time-series tables
       │
       ▼
-API: /api/v1/spoke/dg/metrics (dashboard)
-API: /api/v1/spoke/dg/overview (graph visualization)
+API: /api/v1/spoke/dg/metric   (dashboard)
+API: /api/v1/spoke/dg/overview  (graph visualization)
 ```
 
 ---
@@ -314,33 +314,37 @@ Maps MANIFESTO features to the system components and infrastructure they require
 
 ### Data Engineering (DE)
 
+DE features are served through `/spoke/common/` routes (dataset-centric operations are shared across all user groups that own a dataset). No `/spoke/de/` routes are currently defined.
+
 | Feature | UC | API Route | Backend Services | Infrastructure |
 |---------|----|-----------|--------------------|----------------|
-| Deep Technical Spec Ingestion | UC1 | `/de/ingestion/` | Ingestion Service, Custom Extractors, Field Mapping Engine | Temporal, DataHub SDK, Qdrant |
-| Online Data Validator | UC2, UC3 | `/de/validator/` | Quality Score Engine, Anomaly Detection, SLA Predictor | PostgreSQL, Redis, Prophet/IF |
-| Automated Doc Suggestions | UC4 | `/de/docs/` | Ontology Builder (shared), Source Code Analyzer, Consistency Engine | LLM API, Qdrant, PostgreSQL |
+| Deep Technical Spec Ingestion | UC1 | `/spoke/common/ingestion/`, `/spoke/common/data/{urn}/attr/ingestion/` | Ingestion Service, Custom Extractors, Field Mapping Engine | Temporal, DataHub SDK, Qdrant |
+| Online Data Validator | UC2, UC3 | `/spoke/common/validation/`, `/spoke/common/data/{urn}/attr/validation/` | Quality Score Engine, Anomaly Detection, SLA Predictor | PostgreSQL, Redis, Prophet/IF |
+| Automated Doc Generation | UC4 | `/spoke/common/gen/`, `/spoke/common/data/{urn}/attr/gen/` | Ontology Builder (shared), Source Code Analyzer, Consistency Engine | LLM API, Qdrant, PostgreSQL |
 
 ### Data Analysis (DA)
 
+DA features are served through `/spoke/common/` routes. No `/spoke/da/` routes are currently defined.
+
 | Feature | UC | API Route | Backend Services | Infrastructure |
 |---------|----|-----------|--------------------|----------------|
-| Natural Language Search | UC5 | `/da/search/` | NL Query Parser, Vector Search, PII Classifier | Qdrant, LLM API |
-| Text-to-SQL Optimized Metadata | UC7 | `/da/text-to-sql/` | Column Profiler, Join Path Recommender, Context Optimizer | Qdrant, DataHub GraphQL |
-| Online Data Validator | UC2 | `/da/validator/` | (shared with DE) | (shared with DE) |
+| Natural Language Search | UC5 | `/spoke/common/search/` | NL Query Parser, Vector Search, PII Classifier | Qdrant, LLM API |
+| Text-to-SQL Optimized Metadata | UC7 | `/spoke/common/search?sql_context=true` | Column Profiler, Join Path Recommender, Context Optimizer | Qdrant, DataHub GraphQL |
+| Online Data Validator | UC2 | `/spoke/common/validation/` | (shared with DE) | (shared with DE) |
 
 ### Data Governance (DG)
 
 | Feature | UC | API Route | Backend Services | Infrastructure |
 |---------|----|-----------|--------------------|----------------|
-| Enterprise Metrics Dashboard | UC6 | `/dg/metrics/` | Health Score Aggregator, Department Mapper, Issue Tracker, Notification Engine | PostgreSQL, Temporal |
-| Multi-Perspective Data Overview | UC8 | `/dg/overview/` | Ontology Builder (shared), Graph Layout Engine, Medallion Detector, Blind Spot Analyzer | Qdrant, LLM API, PostgreSQL |
+| Enterprise Metrics Dashboard | UC6 | `/spoke/dg/metric/` | Health Score Aggregator, Department Mapper, Issue Tracker, Notification Engine | PostgreSQL, Temporal |
+| Multi-Perspective Data Overview | UC8 | `/spoke/dg/overview/` | Ontology Builder (shared), Graph Layout Engine, Medallion Detector, Blind Spot Analyzer | Qdrant, LLM API, PostgreSQL |
 
 ### Common (cross-group)
 
 | Feature | UC | API Route | Backend Services | Infrastructure |
 |---------|----|-----------|--------------------|----------------|
-| Ontology/Taxonomy Builder | UC4, UC8 | `/common/ontology/` | LLM Classification, Hierarchy Builder, Relationship Inference | LLM API, PostgreSQL, Qdrant |
-| Quality Score Engine | UC2, UC3, UC6 | `/common/quality/` | Score Aggregator, Anomaly Detector | PostgreSQL, Redis |
+| Ontology/Taxonomy Builder | UC4, UC8 | `/spoke/common/ontology/` | LLM Classification, Hierarchy Builder, Relationship Inference | LLM API, PostgreSQL, Qdrant |
+| Quality Score Engine | UC2, UC3, UC6 | — (internal shared service; no dedicated API route) | Score Aggregator, Anomaly Detector | PostgreSQL, Redis |
 
 ### Cross-Cutting Infrastructure
 
@@ -359,7 +363,7 @@ Reusable backend services consumed by multiple features. These live in `src/shar
 
 ### Ontology/Taxonomy Builder
 
-Shared by UC4 (Doc Suggestions) and UC8 (Multi-Perspective Overview).
+Shared by UC4 (Doc Generation) and UC8 (Multi-Perspective Overview).
 
 **Purpose**: LLM-powered service that builds and maintains business concept taxonomies from metadata.
 

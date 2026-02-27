@@ -92,7 +92,7 @@ alembic upgrade head  # Apply DB migrations
 ## Key Design Decisions
 
 - **DataHub-backed SSOT**: DataHub stores metadata; DataSpoke extends without modifying core
-- **API Convention Compliance**: All REST APIs must follow `spec/API_DESIGN_PRINCIPLE_en.md` — covers URI structure, request/response format, content/metadata separation, meta-classifiers (`attrs`, `methods`, `events`), and query parameter conventions
+- **API Convention Compliance**: All REST APIs must follow `spec/API_DESIGN_PRINCIPLE_en.md` — covers URI structure, request/response format, content/metadata separation, meta-classifiers (`attr`, `method`, `event`), and query parameter conventions
 - **API-first**: OpenAPI specs live in `api/` as standalone artifacts so AI agents and frontend can iterate without a running backend
 - **Three-tier API routing**: `/spoke/common/` for shared features, `/spoke/[de|da|dg]/` for user-group features, `/hub/` for DataHub pass-through
 - **Temporal over Airflow**: better for long-running workflows, easier testing; use Airflow only if existing infrastructure demands it
