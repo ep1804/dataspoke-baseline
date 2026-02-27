@@ -812,14 +812,14 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  # ── DA: Search ────────────────────────────────────────────────────────────
+  # ── Common: Search ────────────────────────────────────────────────────────
 
-  /api/v1/spoke/da/search:
+  /api/v1/spoke/common/search:
     get:
-      tags: [da]
+      tags: [common]
       operationId: natural_language_search
       summary: Natural language search
-      description: Requires group claim `da`.
+      description: Requires any valid group claim (`de`, `da`, `dg`).
       parameters:
         - name: q
           in: query
@@ -851,21 +851,38 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
-  /api/v1/spoke/da/search/{dataset_urn}:
+  /api/v1/spoke/common/search/{dataset_urn}:
     parameters:
       - $ref: "#/components/parameters/DatasetUrn"
     get:
-      tags: [da]
+      tags: [common]
       operationId: get_search_indexed_metadata
       summary: Get search-indexed metadata for dataset
-      description: Requires group claim `da`.
+      description: |
+        Requires any valid group claim. Pass `?sql_context=true` to include
+        text-to-SQL optimized column detail, sample values, and inferred join paths
+        in the response.
+      parameters:
+        - name: sql_context
+          in: query
+          required: false
+          description: Include text-to-SQL context and inferred join paths
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
-          description: Search-indexed metadata
+          description: Search-indexed metadata, optionally with SQL context
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SearchResult"
+                allOf:
+                  - $ref: "#/components/schemas/SearchResult"
+                  - type: object
+                    properties:
+                      sql_context:
+                        description: Present only when `?sql_context=true`
+                        $ref: "#/components/schemas/TextToSqlContext"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -873,12 +890,12 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /api/v1/spoke/da/search/method/reindex:
+  /api/v1/spoke/common/search/method/reindex:
     post:
-      tags: [da]
+      tags: [common]
       operationId: reindex_dataset
       summary: Trigger reindex for a dataset
-      description: Requires group claim `da`.
+      description: Requires any valid group claim.
       requestBody:
         required: true
         content:
@@ -914,74 +931,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
-
-  # ── DA: Text-to-SQL ───────────────────────────────────────────────────────
-
-  /api/v1/spoke/da/text-to-sql/context/{dataset_urn}:
-    parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
-    get:
-      tags: [da]
-      operationId: get_text_to_sql_context
-      summary: Get text-to-SQL optimized context
-      description: Requires group claim `da`.
-      responses:
-        "200":
-          description: Text-to-SQL context
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TextToSqlContext"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "502":
-          $ref: "#/components/responses/BadGateway"
-
-  /api/v1/spoke/da/text-to-sql/join-paths:
-    get:
-      tags: [da]
-      operationId: get_join_paths
-      summary: Recommend join paths between datasets
-      description: Requires group claim `da`.
-      parameters:
-        - name: from
-          in: query
-          required: true
-          description: URL-encoded source dataset URN
-          schema:
-            type: string
-            example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
-        - name: to
-          in: query
-          required: true
-          description: URL-encoded target dataset URN
-          schema:
-            type: string
-            example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.customers,PROD)"
-      responses:
-        "200":
-          description: Recommended join paths
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  join_paths:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/JoinPath"
-                  resp_time:
-                    $ref: "#/components/schemas/Timestamp"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
 
   # ── DA: Validator ─────────────────────────────────────────────────────────
 
@@ -2109,6 +2058,11 @@ components:
           example:
             order_id: ["1001", "1002", "1003"]
             status: ["shipped", "pending", "cancelled"]
+        join_paths:
+          type: array
+          description: Inferred join paths from this dataset's foreign key relationships
+          items:
+            $ref: "#/components/schemas/JoinPath"
         resp_time:
           $ref: "#/components/schemas/Timestamp"
 

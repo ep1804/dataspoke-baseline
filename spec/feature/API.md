@@ -123,7 +123,7 @@ Client                       DataSpoke API              Identity Store
   │◄── {access_token,             │
   │     refresh_token cookie} ────│
   │                               │
-  │── GET /spoke/de/ingestion ───►│
+  │── GET /spoke/common/data/{urn}/attr/ingestion_conf ►│
   │   Authorization: Bearer <at>  │── validate JWT, check groups ─► 200 OK
 ```
 
@@ -132,6 +132,14 @@ Client                       DataSpoke API              Identity Store
 ## Route Catalogue
 
 All routes are prefixed with `/api/v1`. Routes marked **WS** are WebSocket endpoints.
+
+> **User-group routing principle**: User-group-specific paths (`/spoke/de/…`,
+> `/spoke/da/…`, `/spoke/dg/…`) should be defined **only when a feature is exclusively
+> used by that user group**. For dataset-centric operations — ingestion, validation,
+> generation, search — the `/spoke/common/data/{dataset_urn}/…` structure is preferred
+> so that any team owning a dataset can access the feature regardless of group membership.
+> As a result, the current catalogue has no `/spoke/de` or `/spoke/da` sections; all
+> shared dataset operations live under `/spoke/common`.
 
 ### Auth
 
@@ -145,6 +153,8 @@ All routes are prefixed with `/api/v1`. Routes marked **WS** are WebSocket endpo
 
 Cross-cutting features consumed by multiple user groups.
 
+#### Ontology
+
 | Method | Path | Purpose | Feature | UC |
 |--------|------|---------|---------|-----|
 | `GET` | `/spoke/common/ontology` | List concept categories | Ontology Builder | UC4, UC8 |
@@ -153,62 +163,148 @@ Cross-cutting features consumed by multiple user groups.
 | `GET` | `/spoke/common/ontology/{concept_id}/event` | Change history for a concept | Ontology Builder | UC4 |
 | `POST` | `/spoke/common/ontology/{concept_id}/method/approve` | Approve a pending concept proposal | Ontology Builder | UC4 |
 | `POST` | `/spoke/common/ontology/{concept_id}/method/reject` | Reject a pending concept proposal | Ontology Builder | UC4 |
-| `GET` | `/spoke/common/quality/{dataset_urn}` | Get quality score for a dataset | Quality Score Engine | UC2, UC3, UC6 |
-| `GET` | `/spoke/common/quality/{dataset_urn}/event` | Quality score history (time-series) | Quality Score Engine | UC2, UC3 |
 
-### Data Engineering (`/spoke/de`)
+#### Data Resource (`/spoke/common/data/{dataset_urn}`)
 
-| Method | Path | Purpose | Feature | UC |
-|--------|------|---------|---------|-----|
-| `GET` | `/spoke/de/ingestion` | List ingestion configs | Deep Technical Spec Ingestion | UC1 |
-| `POST` | `/spoke/de/ingestion` | Create ingestion config | Deep Technical Spec Ingestion | UC1 |
-| `GET` | `/spoke/de/ingestion/{config_id}` | Get ingestion config detail | Deep Technical Spec Ingestion | UC1 |
-| `PUT` | `/spoke/de/ingestion/{config_id}` | Update ingestion config | Deep Technical Spec Ingestion | UC1 |
-| `DELETE` | `/spoke/de/ingestion/{config_id}` | Delete ingestion config | Deep Technical Spec Ingestion | UC1 |
-| `GET` | `/spoke/de/ingestion/{config_id}/event` | Ingestion run history | Deep Technical Spec Ingestion | UC1 |
-| `POST` | `/spoke/de/ingestion/{config_id}/method/run` | Trigger ingestion run | Deep Technical Spec Ingestion | UC1 |
-| `POST` | `/spoke/de/ingestion/{config_id}/method/dry-run` | Dry-run ingestion (no write) | Deep Technical Spec Ingestion | UC1 |
-| `GET` | `/spoke/de/validator/{dataset_urn}` | Get validation result for dataset | Online Data Validator | UC2, UC3 |
-| `POST` | `/spoke/de/validator/{dataset_urn}/method/validate` | Run validation (writes result) | Online Data Validator | UC2 |
-| `POST` | `/spoke/de/validator/{dataset_urn}/method/dry-validate` | Dry-run validation (no write) | Online Data Validator | UC2 |
-| `GET` | `/spoke/de/validator/{dataset_urn}/event` | Validation run history | Online Data Validator | UC2, UC3 |
-| `GET` | `/spoke/de/docs/{dataset_urn}` | Get doc suggestion state | Automated Doc Suggestions | UC4 |
-| `GET` | `/spoke/de/docs/{dataset_urn}/attr` | Get suggestion metadata (confidence, source) | Automated Doc Suggestions | UC4 |
-| `POST` | `/spoke/de/docs/{dataset_urn}/method/generate` | Trigger doc suggestion generation | Automated Doc Suggestions | UC4 |
-| `POST` | `/spoke/de/docs/{dataset_urn}/method/apply` | Apply approved suggestions to DataHub | Automated Doc Suggestions | UC4 |
-| `GET` | `/spoke/de/docs/{dataset_urn}/event` | Doc suggestion history | Automated Doc Suggestions | UC4 |
-| **WS** | `/spoke/de/validator/{dataset_urn}/stream` | Real-time validation progress stream | Online Data Validator | UC2 |
-
-### Data Analysis (`/spoke/da`)
+The canonical resource for a dataset. All teams (DE, DA, DG) access dataset attributes,
+ingestion, validation, and generation through this shared path. Ingestion, validation,
+and generation are organized under `attr/` with parallel sub-resource structures: `conf`
+(configurations with status), `method` (action triggers), and `event` (success/failure
+notices). Validation and generation additionally have `result` (periodic results as
+timeseries). In a data-mesh organization any team that owns a dataset can register and
+manage ingestion, validation, and generation — DE teams provide deep technical specs
+while DA or other teams may register simpler configurations.
 
 | Method | Path | Purpose | Feature | UC |
 |--------|------|---------|---------|-----|
-| `GET` | `/spoke/da/search` | Natural language search (`?q=…`) | Natural Language Search | UC5 |
-| `GET` | `/spoke/da/search/{dataset_urn}` | Get search-indexed metadata for dataset | Natural Language Search | UC5 |
-| `POST` | `/spoke/da/search/method/reindex` | Trigger reindex for a dataset | Natural Language Search | UC5 |
-| `GET` | `/spoke/da/text-to-sql/context/{dataset_urn}` | Get text-to-SQL optimized context | Text-to-SQL Metadata | UC7 |
-| `GET` | `/spoke/da/text-to-sql/join-paths` | Recommend join paths between datasets (`?from=…&to=…`) | Text-to-SQL Metadata | UC7 |
-| `GET` | `/spoke/da/validator/{dataset_urn}` | Get validation result for dataset | Online Data Validator | UC2 |
-| `POST` | `/spoke/da/validator/{dataset_urn}/method/validate` | Run validation (writes result) | Online Data Validator | UC2 |
-| `POST` | `/spoke/da/validator/{dataset_urn}/method/dry-validate` | Dry-run validation (no write) | Online Data Validator | UC2 |
-| `GET` | `/spoke/da/validator/{dataset_urn}/event` | Validation run history | Online Data Validator | UC2 |
-| **WS** | `/spoke/da/validator/{dataset_urn}/stream` | Real-time validation progress stream | Online Data Validator | UC2 |
+| `GET` | `/spoke/common/data/{dataset_urn}` | Get dataset summary (identity, owner, tags) | Data Resource | — |
+| `GET` | `/spoke/common/data/{dataset_urn}/attr` | Get dataset attributes (schema summary, ownership, tags) | Data Resource | — |
+| `GET` | `/spoke/common/data/{dataset_urn}/attr/ingestion/conf` | Get ingestion configuration for dataset | Ingestion Config | UC1 |
+| `PUT` | `/spoke/common/data/{dataset_urn}/attr/ingestion/conf` | Create or replace ingestion configuration | Ingestion Config | UC1 |
+| `PATCH` | `/spoke/common/data/{dataset_urn}/attr/ingestion/conf` | Partially update ingestion configuration | Ingestion Config | UC1 |
+| `DELETE` | `/spoke/common/data/{dataset_urn}/attr/ingestion/conf` | Remove ingestion configuration | Ingestion Config | UC1 |
+| `POST` | `/spoke/common/data/{dataset_urn}/attr/ingestion/method/run` | Trigger ingestion run (`?config_id=…&dry_run=true`) | Ingestion Execution | UC1 |
+| `GET` | `/spoke/common/data/{dataset_urn}/attr/ingestion/event` | Ingestion event reports (success/failure notices) | Ingestion Execution | UC1 |
+| `GET` | `/spoke/common/data/{dataset_urn}/attr/validation/conf` | Get validation configuration for dataset | Validation Config | UC2, UC3, UC6 |
+| `PUT` | `/spoke/common/data/{dataset_urn}/attr/validation/conf` | Create or replace validation configuration | Validation Config | UC2, UC3, UC6 |
+| `PATCH` | `/spoke/common/data/{dataset_urn}/attr/validation/conf` | Partially update validation configuration | Validation Config | UC2, UC3, UC6 |
+| `DELETE` | `/spoke/common/data/{dataset_urn}/attr/validation/conf` | Remove validation configuration | Validation Config | UC2, UC3, UC6 |
+| `GET` | `/spoke/common/data/{dataset_urn}/attr/validation/result` | Get validation results (timeseries; `?from=…&to=…` for time range) | Online Data Validator | UC2, UC3, UC6 |
+| `POST` | `/spoke/common/data/{dataset_urn}/attr/validation/method/run` | Trigger validation run (`?config_id=…&dry_run=true`) | Online Data Validator | UC2, UC3, UC6 |
+| `GET` | `/spoke/common/data/{dataset_urn}/attr/validation/event` | Validation event reports (success/failure notices) | Online Data Validator | UC2, UC3, UC6 |
+| `GET` | `/spoke/common/data/{dataset_urn}/attr/gen/conf` | Get generation configuration (target fields, period, status) | Automated Doc Generation | UC4 |
+| `PUT` | `/spoke/common/data/{dataset_urn}/attr/gen/conf` | Create or replace generation configuration | Automated Doc Generation | UC4 |
+| `PATCH` | `/spoke/common/data/{dataset_urn}/attr/gen/conf` | Partially update generation configuration | Automated Doc Generation | UC4 |
+| `DELETE` | `/spoke/common/data/{dataset_urn}/attr/gen/conf` | Remove generation configuration | Automated Doc Generation | UC4 |
+| `GET` | `/spoke/common/data/{dataset_urn}/attr/gen/result` | Get generation results (historical; `?latest=true` for most recent only) | Automated Doc Generation | UC4 |
+| `POST` | `/spoke/common/data/{dataset_urn}/attr/gen/method/generate` | Trigger metadata generation run | Automated Doc Generation | UC4 |
+| `POST` | `/spoke/common/data/{dataset_urn}/attr/gen/method/apply` | Apply approved generation results to DataHub | Automated Doc Generation | UC4 |
+| `GET` | `/spoke/common/data/{dataset_urn}/attr/gen/event` | Generation event reports (success/failure notices) | Automated Doc Generation | UC4 |
+| `GET` | `/spoke/common/data/{dataset_urn}/event` | Dataset-level event history (all event types) | Data Resource | — |
+| **WS** | `/spoke/common/data/{dataset_urn}/stream/validation` | Real-time validation progress stream | Online Data Validator | UC2 |
+
+#### Ingestion (`/spoke/common/ingestion`)
+
+A cross-dataset view of ingestion configurations and events. Each entry combines dataset
+identity with the ingestion data stored under
+`common/data/{dataset_urn}/attr/ingestion/`. Useful for operations dashboards and bulk
+management.
+
+| Method | Path | Purpose | Feature | UC |
+|--------|------|---------|---------|-----|
+| `GET` | `/spoke/common/ingestion` | List all ingestion configs across datasets (paginated, filterable) | Ingestion Config | UC1 |
+| `GET` | `/spoke/common/ingestion/{dataset_urn}` | Get ingestion config detail (dataset identity + config body) | Ingestion Config | UC1 |
+| `GET` | `/spoke/common/ingestion/{dataset_urn}/attr` | Get config attributes (schedule, deep_spec_enabled flag, status, owner) | Ingestion Config | UC1 |
+| `PATCH` | `/spoke/common/ingestion/{dataset_urn}/attr` | Update config attributes | Ingestion Config | UC1 |
+| `POST` | `/spoke/common/ingestion/{dataset_urn}/method/run` | Trigger ingestion run (`?dry_run=true` for no-write mode) | Ingestion Execution | UC1 |
+| `GET` | `/spoke/common/ingestion/{dataset_urn}/event` | Ingestion event reports (success/failure notices) | Ingestion Execution | UC1 |
+
+#### Validation (`/spoke/common/validation`)
+
+A cross-dataset view of validation configurations, results, and events. Each entry combines
+dataset identity with the validation data stored under
+`common/data/{dataset_urn}/attr/validation/`. Useful for quality dashboards and bulk rule
+management.
+
+| Method | Path | Purpose | Feature | UC |
+|--------|------|---------|---------|-----|
+| `GET` | `/spoke/common/validation` | List all validation configs across datasets (paginated, filterable) | Validation Config | UC2, UC3, UC6 |
+| `GET` | `/spoke/common/validation/{dataset_urn}` | Get validation config detail (dataset identity + config body) | Validation Config | UC2, UC3, UC6 |
+| `GET` | `/spoke/common/validation/{dataset_urn}/attr` | Get config attributes (rules, result spec, schedule, status, owner) | Validation Config | UC2, UC3, UC6 |
+| `PATCH` | `/spoke/common/validation/{dataset_urn}/attr` | Update config attributes | Validation Config | UC2, UC3, UC6 |
+| `GET` | `/spoke/common/validation/{dataset_urn}/attr/result` | Get validation results for this dataset (timeseries; `?from=…&to=…` for time range) | Online Data Validator | UC2, UC3, UC6 |
+| `POST` | `/spoke/common/validation/{dataset_urn}/method/run` | Trigger validation run (`?dry_run=true` for no-write mode) | Online Data Validator | UC2, UC3, UC6 |
+| `GET` | `/spoke/common/validation/{dataset_urn}/event` | Validation event reports (success/failure notices) | Online Data Validator | UC2, UC3, UC6 |
+
+#### Generation (`/spoke/common/gen`)
+
+A cross-dataset view of generation configurations, results, and events. Each entry
+combines dataset identity with the generation data stored under
+`common/data/{dataset_urn}/attr/gen/`. Useful for monitoring generation status across
+all datasets and bulk management.
+
+| Method | Path | Purpose | Feature | UC |
+|--------|------|---------|---------|-----|
+| `GET` | `/spoke/common/gen` | List all generation configs across datasets (paginated, filterable) | Automated Doc Generation | UC4 |
+| `GET` | `/spoke/common/gen/{dataset_urn}` | Get generation detail (dataset identity + config + latest result) | Automated Doc Generation | UC4 |
+| `GET` | `/spoke/common/gen/{dataset_urn}/attr` | Get config attributes (target fields, period, status, owner) | Automated Doc Generation | UC4 |
+| `PATCH` | `/spoke/common/gen/{dataset_urn}/attr` | Update config attributes | Automated Doc Generation | UC4 |
+| `GET` | `/spoke/common/gen/{dataset_urn}/attr/result` | Get generation results for this dataset (historical; `?from=…&to=…` for time range) | Automated Doc Generation | UC4 |
+| `POST` | `/spoke/common/gen/{dataset_urn}/method/generate` | Trigger generation run | Automated Doc Generation | UC4 |
+| `POST` | `/spoke/common/gen/{dataset_urn}/method/apply` | Apply approved results to DataHub | Automated Doc Generation | UC4 |
+| `GET` | `/spoke/common/gen/{dataset_urn}/event` | Generation event reports (success/failure notices) | Automated Doc Generation | UC4 |
+
+#### Search (`/spoke/common/search`)
+
+Natural language search over dataset metadata using vector similarity. Available to all
+user groups. The dataset-level endpoint accepts `?sql_context=true` to include
+text-to-SQL optimized column detail, sample values, and inferred join paths in the
+response — superseding the former dedicated text-to-SQL and join-paths paths.
+
+| Method | Path | Purpose | Feature | UC |
+|--------|------|---------|---------|-----|
+| `GET` | `/spoke/common/search` | Natural language search (`?q=…`) | Natural Language Search | UC5 |
+| `GET` | `/spoke/common/search/{dataset_urn}` | Search-indexed metadata (`?sql_context=true` for SQL context + join paths) | Natural Language Search, Text-to-SQL Metadata | UC5, UC7 |
+| `POST` | `/spoke/common/search/method/reindex` | Trigger reindex for a dataset | Natural Language Search | UC5 |
 
 ### Data Governance (`/spoke/dg`)
 
+#### Metric (`/spoke/dg/metric`)
+
+Governance metrics are named, configurable measurements tracked over time — for example,
+the count of poorly documented datasets, the count of erroneous datasets per medallion
+layer, or data downtime duration. Each metric carries a definition (`attr/conf`) that
+controls how it is computed, scheduled, and alerted, and a timeseries of measurement
+results (`attr/result`). Metrics represent enterprise-wide or department-wide signals
+rather than per-dataset observations.
+
 | Method | Path | Purpose | Feature | UC |
 |--------|------|---------|---------|-----|
-| `GET` | `/spoke/dg/metrics` | Get aggregated enterprise metrics snapshot | Enterprise Metrics Dashboard | UC6 |
-| `GET` | `/spoke/dg/metrics/attr` | Get metrics config (thresholds, alert rules) | Enterprise Metrics Dashboard | UC6 |
-| `PATCH` | `/spoke/dg/metrics/attr` | Update metrics config | Enterprise Metrics Dashboard | UC6 |
-| `GET` | `/spoke/dg/metrics/event` | Metrics collection run history | Enterprise Metrics Dashboard | UC6 |
-| `GET` | `/spoke/dg/metrics/{department_id}` | Get department-level metrics | Enterprise Metrics Dashboard | UC6 |
-| `GET` | `/spoke/dg/metrics/{department_id}/event` | Department metrics history (time-series) | Enterprise Metrics Dashboard | UC6 |
-| `GET` | `/spoke/dg/overview` | Get multi-perspective overview (graph + medallion) | Multi-Perspective Data Overview | UC8 |
+| `GET` | `/spoke/dg/metric` | List all metrics (paginated; filterable by theme, status) | Enterprise Metrics Dashboard | UC6 |
+| `GET` | `/spoke/dg/metric/{metric_id}` | Get metric summary (identity, theme, active status) | Enterprise Metrics Dashboard | UC6 |
+| `GET` | `/spoke/dg/metric/{metric_id}/attr/conf` | Get metric definition (title, theme, measurement period, alarm setup, active status) | Enterprise Metrics Dashboard | UC6 |
+| `PUT` | `/spoke/dg/metric/{metric_id}/attr/conf` | Create or replace metric definition | Enterprise Metrics Dashboard | UC6 |
+| `PATCH` | `/spoke/dg/metric/{metric_id}/attr/conf` | Update metric definition fields | Enterprise Metrics Dashboard | UC6 |
+| `DELETE` | `/spoke/dg/metric/{metric_id}/attr/conf` | Remove metric definition | Enterprise Metrics Dashboard | UC6 |
+| `GET` | `/spoke/dg/metric/{metric_id}/attr/result` | Get measurement results (numeric timeseries; `?from=…&to=…` for time range) | Enterprise Metrics Dashboard | UC6 |
+| `POST` | `/spoke/dg/metric/{metric_id}/method/run` | Trigger a metric measurement run | Enterprise Metrics Dashboard | UC6 |
+| `POST` | `/spoke/dg/metric/{metric_id}/method/activate` | Activate metric (enable scheduled measurement) | Enterprise Metrics Dashboard | UC6 |
+| `POST` | `/spoke/dg/metric/{metric_id}/method/deactivate` | Deactivate metric | Enterprise Metrics Dashboard | UC6 |
+| `GET` | `/spoke/dg/metric/{metric_id}/event` | Metric run events and alarm notices | Enterprise Metrics Dashboard | UC6 |
+| **WS** | `/spoke/dg/metric/stream` | Real-time metric update stream | Enterprise Metrics Dashboard | UC6 |
+
+#### Overview (`/spoke/dg/overview`)
+
+Additional perspectives on the data estate that cannot be expressed as per-metric
+timeseries: graph-based topology views, medallion layer coverage maps, and similar
+structural views. Use these paths only when the `/spoke/dg/metric` routes are
+insufficient to represent the data needed.
+
+| Method | Path | Purpose | Feature | UC |
+|--------|------|---------|---------|-----|
+| `GET` | `/spoke/dg/overview` | Get multi-perspective overview snapshot (graph + medallion coverage) | Multi-Perspective Data Overview | UC8 |
 | `GET` | `/spoke/dg/overview/attr` | Get visualization config (layout, coloring, filters) | Multi-Perspective Data Overview | UC8 |
 | `PATCH` | `/spoke/dg/overview/attr` | Update visualization config | Multi-Perspective Data Overview | UC8 |
-| `GET` | `/spoke/dg/overview/blind-spots` | List datasets with no taxonomy assignment or health score | Multi-Perspective Data Overview | UC8 |
-| **WS** | `/spoke/dg/metrics/stream` | Real-time metrics update stream | Enterprise Metrics Dashboard | UC6 |
 
 ### DataHub Pass-Through (`/hub`)
 
@@ -219,7 +315,7 @@ after JWT validation.
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/hub/graphql` | Proxy DataHub GraphQL queries |
-| `GET` | `/hub/openapi/{path:path}` | Proxy DataHub REST OpenAPI endpoints |
+| `*` | `/hub/openapi/{path:path}` | Proxy DataHub REST OpenAPI endpoints (all methods) |
 
 ### System
 
@@ -233,6 +329,12 @@ after JWT validation.
 ## Request & Response Conventions
 
 These rules apply `API_DESIGN_PRINCIPLE_en.md` concretely to DataSpoke.
+
+> **Style consistency**: All DataSpoke API endpoints must follow the conventions in this
+> section uniformly — snake_case field names, ISO 8601 UTC timestamps, `offset`/`limit`
+> for pagination, `from`/`to` for time-range filters, and `sort={field}_{asc|desc}` for
+> ordering. Any deviation from these conventions requires explicit justification in the
+> relevant feature spec.
 
 ### Field Naming
 
@@ -273,7 +375,9 @@ Single-resource responses return the object directly with `resp_time` at the top
 |-----------|------|---------|
 | `offset` | integer | Pagination start (default `0`) |
 | `limit` | integer | Page size (default `20`, max `100`) |
-| `sort` | string | Field + direction, e.g. `quality_score_desc` |
+| `sort` | string | Field name + direction suffix `_asc` or `_desc`, e.g. `quality_score_desc`, `occurred_at_asc` |
+| `from` | string (ISO 8601) | Start of time-range filter, inclusive; used on `result` and `event` endpoints |
+| `to` | string (ISO 8601) | End of time-range filter, inclusive; used on `result` and `event` endpoints |
 | `q` | string | Natural language query (search endpoints only) |
 
 ### Meta-Classifier Conventions
@@ -283,10 +387,17 @@ definitions:
 
 - `attr` — Read or update a subset of resource attributes (configuration, thresholds,
   visualization settings). Use `GET` to read, `PATCH` to update partial fields.
-- `method` — Business actions that go beyond CRUD: `run`, `dry-run`, `approve`, `reject`,
-  `apply`, `generate`, `reindex`. Always `POST`.
+- `method` — Business actions that go beyond CRUD: `run`, `approve`, `reject`,
+  `apply`, `generate`, `reindex`. Always `POST`. Use `?dry_run=true` for no-write mode
+  instead of separate dry-run paths.
 - `event` — Immutable history log of occurrences on a resource. Always `GET`; supports
-  `offset`/`limit` pagination and `sort=occurred_at_desc`.
+  `offset`/`limit` pagination and `sort=occurred_at_desc` (default order, newest first).
+  Supports `from`/`to` for time-range filtering. Sub-paths may be used to narrow by
+  outcome (e.g. `.../event/failure`, `.../event/success`), but the parent `.../event`
+  path must remain and return all event types. All events returned at `.../event` and any
+  of its sub-paths must share a **uniform top-level JSON structure** — the same field
+  names and types (e.g. `event_type`, `occurred_at`, `status`, `detail`) — so that
+  clients can process them generically even when event types differ.
 
 ### Date/Time
 
@@ -372,10 +483,11 @@ All errors follow the standard envelope:
 | `FORBIDDEN` | 403 | Valid token; groups claim does not satisfy route requirement |
 | `DATASET_NOT_FOUND` | 404 | Dataset URN does not exist in DataHub |
 | `CONCEPT_NOT_FOUND` | 404 | Ontology concept ID not found |
-| `CONFIG_NOT_FOUND` | 404 | Ingestion config not found |
-| `DUPLICATE_CONFIG` | 409 | Ingestion config with same name already exists |
-| `INGESTION_RUNNING` | 409 | A run is already in progress for this config |
-| `VALIDATION_RUNNING` | 409 | A validation is already in progress for this dataset |
+| `CONFIG_NOT_FOUND` | 404 | Ingestion config or validation config not found |
+| `DUPLICATE_CONFIG` | 409 | Config with same name already exists |
+| `INGESTION_RUNNING` | 409 | An ingestion run is already in progress for this config |
+| `VALIDATION_RUNNING` | 409 | A validation run is already in progress for this config |
+| `GENERATION_RUNNING` | 409 | A generation run is already in progress for this dataset |
 | `DATAHUB_UNAVAILABLE` | 502 | DataHub GMS did not respond or returned an error |
 | `STORAGE_UNAVAILABLE` | 503 | PostgreSQL, Redis, or Qdrant connection failed |
 | `RATE_LIMIT_EXCEEDED` | 429 | Too many requests; back off and retry |
@@ -407,7 +519,7 @@ Client                        DataSpoke API
 If auth fails, the server sends `{"type":"auth_error","error_code":"UNAUTHORIZED"}` and
 closes the connection.
 
-### Validation Progress Stream (`/spoke/de/validator/{urn}/stream`, `/spoke/da/…`)
+### Validation Progress Stream (`/spoke/common/data/{dataset_urn}/stream/validation`)
 
 Messages sent during a validation run:
 
@@ -422,14 +534,14 @@ Messages sent during a validation run:
  "recommendations": ["Review freshness SLA", "Add ownership tag"]}
 ```
 
-### Enterprise Metrics Stream (`/spoke/dg/metrics/stream`)
+### Metric Update Stream (`/spoke/dg/metric/stream`)
 
 Pushed when the Temporal metrics collection workflow emits an update:
 
 ```json
-{"type": "metrics_update",
- "snapshot_at": "2026-02-27T10:00:00.000Z",
- "total_datasets": 1420,
- "avg_quality_score": 74,
- "departments_below_threshold": ["Marketing", "Legal"]}
+{"type": "metric_update",
+ "metric_id": "poorly-documented-datasets",
+ "measured_at": "2026-02-27T10:00:00.000Z",
+ "value": 42,
+ "alarm": false}
 ```
