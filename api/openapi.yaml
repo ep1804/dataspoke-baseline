@@ -1,0 +1,2341 @@
+openapi: 3.0.3
+
+info:
+  title: DataSpoke API
+  version: 1.0.0
+  description: |
+    DataSpoke is a sidecar extension to DataHub that provides user-group-specific features
+    for Data Engineers (DE), Data Analysts (DA), and Data Governance personnel (DG).
+
+    ## Three-Tier URI Structure
+
+    ```
+    /api/v1/spoke/common/…     Cross-cutting features (DE, DA, DG)
+    /api/v1/spoke/de/…         Data Engineering features
+    /api/v1/spoke/da/…         Data Analysis features
+    /api/v1/spoke/dg/…         Data Governance features
+    /api/v1/hub/…              DataHub pass-through
+    /health, /ready            System probes (no auth, no /api/v1 prefix)
+    ```
+
+    ## Access Control
+
+    JWT claims include a `groups` array (`de`, `da`, `dg`, `admin`). The middleware
+    enforces that the `groups` claim matches the URI tier. Users with `admin` bypass
+    all group-tier restrictions.
+
+    | Tier | Required group |
+    |------|---------------|
+    | `/spoke/common/…` | any valid group |
+    | `/spoke/de/…` | `de` |
+    | `/spoke/da/…` | `da` |
+    | `/spoke/dg/…` | `dg` |
+    | `/hub/…` | any valid group |
+    | `/auth/…`, `/health`, `/ready` | public |
+
+    ## WebSocket Channels
+
+    The following WebSocket endpoints exist alongside the REST API (not described by this spec):
+
+    - `WS /api/v1/spoke/de/validator/{dataset_urn}/stream` — real-time validation progress
+    - `WS /api/v1/spoke/da/validator/{dataset_urn}/stream` — real-time validation progress
+    - `WS /api/v1/spoke/dg/metrics/stream` — real-time metrics updates
+
+    After the WS upgrade, the client must send `{"type":"auth","token":"<access_token>"}`.
+    The server replies `{"type":"auth_ok"}` and begins streaming progress/result messages.
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: https://api.dataspoke.example.com
+    description: Production
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: auth
+    description: Token issuance and revocation
+  - name: common
+    description: Cross-cutting features shared across DE, DA, and DG
+  - name: de
+    description: Data Engineering features
+  - name: da
+    description: Data Analysis features
+  - name: dg
+    description: Data Governance features
+  - name: hub
+    description: DataHub pass-through
+  - name: system
+    description: Liveness and readiness probes
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+paths:
+
+  # ── System ────────────────────────────────────────────────────────────────
+
+  /health:
+    get:
+      tags: [system]
+      operationId: health_check
+      summary: Liveness check
+      security: []
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /ready:
+    get:
+      tags: [system]
+      operationId: readiness_check
+      summary: Readiness check
+      description: Verifies connectivity to DataHub, PostgreSQL, and Redis.
+      security: []
+      responses:
+        "200":
+          description: All dependencies reachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+        "503":
+          description: One or more dependencies unreachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Auth ──────────────────────────────────────────────────────────────────
+
+  /api/v1/auth/token:
+    post:
+      tags: [auth]
+      operationId: auth_token
+      summary: Issue access + refresh tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthTokenRequest"
+      responses:
+        "200":
+          description: Tokens issued; refresh token set as HttpOnly cookie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokenResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/auth/token/refresh:
+    post:
+      tags: [auth]
+      operationId: auth_token_refresh
+      summary: Refresh access token
+      description: Reads the refresh token from the HttpOnly cookie set at login.
+      security: []
+      responses:
+        "200":
+          description: New access token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokenResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/auth/token/revoke:
+    post:
+      tags: [auth]
+      operationId: auth_token_revoke
+      summary: Revoke refresh token (logout)
+      security: []
+      responses:
+        "200":
+          description: Refresh token revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resp_time:
+                    $ref: "#/components/schemas/Timestamp"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Common: Ontology ──────────────────────────────────────────────────────
+
+  /api/v1/spoke/common/ontology:
+    get:
+      tags: [common]
+      operationId: list_ontology_concepts
+      summary: List concept categories
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Concept list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      concepts:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/OntologyConcept"
+                  - $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/spoke/common/ontology/{concept_id}:
+    parameters:
+      - $ref: "#/components/parameters/ConceptId"
+    get:
+      tags: [common]
+      operationId: get_ontology_concept
+      summary: Get concept detail + relationships
+      responses:
+        "200":
+          description: Concept detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OntologyConceptDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/common/ontology/{concept_id}/attr:
+    parameters:
+      - $ref: "#/components/parameters/ConceptId"
+    get:
+      tags: [common]
+      operationId: get_ontology_concept_attr
+      summary: Get concept attributes (confidence, parent)
+      responses:
+        "200":
+          description: Concept attributes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OntologyConceptAttr"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/common/ontology/{concept_id}/event:
+    parameters:
+      - $ref: "#/components/parameters/ConceptId"
+    get:
+      tags: [common]
+      operationId: list_ontology_concept_events
+      summary: Change history for a concept
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Change history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      events:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/OntologyConceptEvent"
+                  - $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/common/ontology/{concept_id}/method/approve:
+    parameters:
+      - $ref: "#/components/parameters/ConceptId"
+    post:
+      tags: [common]
+      operationId: approve_ontology_concept
+      summary: Approve a pending concept proposal
+      responses:
+        "200":
+          description: Concept approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OntologyConceptDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/common/ontology/{concept_id}/method/reject:
+    parameters:
+      - $ref: "#/components/parameters/ConceptId"
+    post:
+      tags: [common]
+      operationId: reject_ontology_concept
+      summary: Reject a pending concept proposal
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  example: "Duplicate of existing concept 'revenue'."
+      responses:
+        "200":
+          description: Concept rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OntologyConceptDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Common: Quality ───────────────────────────────────────────────────────
+
+  /api/v1/spoke/common/quality/{dataset_urn}:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    get:
+      tags: [common]
+      operationId: get_quality_score
+      summary: Get quality score for a dataset
+      responses:
+        "200":
+          description: Quality score
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QualityScore"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /api/v1/spoke/common/quality/{dataset_urn}/event:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    get:
+      tags: [common]
+      operationId: list_quality_score_events
+      summary: Quality score history (time-series)
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Quality score history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      events:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/QualityScoreEvent"
+                  - $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── DE: Ingestion ─────────────────────────────────────────────────────────
+
+  /api/v1/spoke/de/ingestion:
+    get:
+      tags: [de]
+      operationId: list_ingestion_configs
+      summary: List ingestion configs
+      description: Requires group claim `de`.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Ingestion config list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      ingestion_configs:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/IngestionConfig"
+                  - $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [de]
+      operationId: create_ingestion_config
+      summary: Create ingestion config
+      description: Requires group claim `de`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestionConfigCreate"
+      responses:
+        "201":
+          description: Ingestion config created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/spoke/de/ingestion/{config_id}:
+    parameters:
+      - $ref: "#/components/parameters/ConfigId"
+    get:
+      tags: [de]
+      operationId: get_ingestion_config
+      summary: Get ingestion config detail
+      description: Requires group claim `de`.
+      responses:
+        "200":
+          description: Ingestion config detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [de]
+      operationId: update_ingestion_config
+      summary: Update ingestion config
+      description: Requires group claim `de`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestionConfigUpdate"
+      responses:
+        "200":
+          description: Updated ingestion config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [de]
+      operationId: delete_ingestion_config
+      summary: Delete ingestion config
+      description: Requires group claim `de`.
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/de/ingestion/{config_id}/event:
+    parameters:
+      - $ref: "#/components/parameters/ConfigId"
+    get:
+      tags: [de]
+      operationId: list_ingestion_run_events
+      summary: Ingestion run history
+      description: Requires group claim `de`.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Ingestion run history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      events:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/IngestionRunEvent"
+                  - $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/de/ingestion/{config_id}/method/run:
+    parameters:
+      - $ref: "#/components/parameters/ConfigId"
+    post:
+      tags: [de]
+      operationId: run_ingestion
+      summary: Trigger ingestion run
+      description: Requires group claim `de`. Returns 409 if a run is already in progress.
+      responses:
+        "200":
+          description: Run triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionRunEvent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/spoke/de/ingestion/{config_id}/method/dry-run:
+    parameters:
+      - $ref: "#/components/parameters/ConfigId"
+    post:
+      tags: [de]
+      operationId: dry_run_ingestion
+      summary: Dry-run ingestion (no write)
+      description: Requires group claim `de`. Validates the config without persisting any data.
+      responses:
+        "200":
+          description: Dry-run result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionRunEvent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── DE: Validator ─────────────────────────────────────────────────────────
+
+  /api/v1/spoke/de/validator/{dataset_urn}:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    get:
+      tags: [de]
+      operationId: de_get_validation_result
+      summary: Get validation result for dataset
+      description: Requires group claim `de`.
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/de/validator/{dataset_urn}/method/validate:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    post:
+      tags: [de]
+      operationId: de_run_validation
+      summary: Run validation (writes result)
+      description: Requires group claim `de`. Returns 409 if a validation is already running.
+      responses:
+        "200":
+          description: Validation triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/spoke/de/validator/{dataset_urn}/method/dry-validate:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    post:
+      tags: [de]
+      operationId: de_dry_validate
+      summary: Dry-run validation (no write)
+      description: Requires group claim `de`. Computes the result without persisting it.
+      responses:
+        "200":
+          description: Dry-run validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/de/validator/{dataset_urn}/event:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    get:
+      tags: [de]
+      operationId: de_list_validation_events
+      summary: Validation run history
+      description: Requires group claim `de`.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Validation run history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      events:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ValidationRunEvent"
+                  - $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── DE: Docs ──────────────────────────────────────────────────────────────
+
+  /api/v1/spoke/de/docs/{dataset_urn}:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    get:
+      tags: [de]
+      operationId: get_doc_suggestion
+      summary: Get doc suggestion state
+      description: Requires group claim `de`.
+      responses:
+        "200":
+          description: Doc suggestion state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocSuggestion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/de/docs/{dataset_urn}/attr:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    get:
+      tags: [de]
+      operationId: get_doc_suggestion_attr
+      summary: Get suggestion metadata (confidence, source)
+      description: Requires group claim `de`.
+      responses:
+        "200":
+          description: Suggestion metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocSuggestionAttr"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/de/docs/{dataset_urn}/method/generate:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    post:
+      tags: [de]
+      operationId: generate_doc_suggestions
+      summary: Trigger doc suggestion generation
+      description: Requires group claim `de`.
+      responses:
+        "200":
+          description: Generation triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocSuggestion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/de/docs/{dataset_urn}/method/apply:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    post:
+      tags: [de]
+      operationId: apply_doc_suggestions
+      summary: Apply approved suggestions to DataHub
+      description: Requires group claim `de`. Pushes approved doc suggestions via DataHub SDK.
+      responses:
+        "200":
+          description: Suggestions applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocSuggestion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /api/v1/spoke/de/docs/{dataset_urn}/event:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    get:
+      tags: [de]
+      operationId: list_doc_suggestion_events
+      summary: Doc suggestion history
+      description: Requires group claim `de`.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Doc suggestion history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      events:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/DocSuggestionEvent"
+                  - $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── DA: Search ────────────────────────────────────────────────────────────
+
+  /api/v1/spoke/da/search:
+    get:
+      tags: [da]
+      operationId: natural_language_search
+      summary: Natural language search
+      description: Requires group claim `da`.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Natural language search query
+          schema:
+            type: string
+            example: "orders table with freshness issues"
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      results:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/SearchResult"
+                  - $ref: "#/components/schemas/PaginationMeta"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/spoke/da/search/{dataset_urn}:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    get:
+      tags: [da]
+      operationId: get_search_indexed_metadata
+      summary: Get search-indexed metadata for dataset
+      description: Requires group claim `da`.
+      responses:
+        "200":
+          description: Search-indexed metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/da/search/method/reindex:
+    post:
+      tags: [da]
+      operationId: reindex_dataset
+      summary: Trigger reindex for a dataset
+      description: Requires group claim `da`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dataset_urn]
+              properties:
+                dataset_urn:
+                  type: string
+                  description: URL-encoded DataHub dataset URN
+                  example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+      responses:
+        "200":
+          description: Reindex triggered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dataset_urn:
+                    type: string
+                  status:
+                    type: string
+                    example: "reindexing"
+                  resp_time:
+                    $ref: "#/components/schemas/Timestamp"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── DA: Text-to-SQL ───────────────────────────────────────────────────────
+
+  /api/v1/spoke/da/text-to-sql/context/{dataset_urn}:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    get:
+      tags: [da]
+      operationId: get_text_to_sql_context
+      summary: Get text-to-SQL optimized context
+      description: Requires group claim `da`.
+      responses:
+        "200":
+          description: Text-to-SQL context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TextToSqlContext"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /api/v1/spoke/da/text-to-sql/join-paths:
+    get:
+      tags: [da]
+      operationId: get_join_paths
+      summary: Recommend join paths between datasets
+      description: Requires group claim `da`.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: URL-encoded source dataset URN
+          schema:
+            type: string
+            example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+        - name: to
+          in: query
+          required: true
+          description: URL-encoded target dataset URN
+          schema:
+            type: string
+            example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.customers,PROD)"
+      responses:
+        "200":
+          description: Recommended join paths
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  join_paths:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/JoinPath"
+                  resp_time:
+                    $ref: "#/components/schemas/Timestamp"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ── DA: Validator ─────────────────────────────────────────────────────────
+
+  /api/v1/spoke/da/validator/{dataset_urn}:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    get:
+      tags: [da]
+      operationId: da_get_validation_result
+      summary: Get validation result for dataset
+      description: Requires group claim `da`.
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/da/validator/{dataset_urn}/method/validate:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    post:
+      tags: [da]
+      operationId: da_run_validation
+      summary: Run validation (writes result)
+      description: Requires group claim `da`. Returns 409 if a validation is already running.
+      responses:
+        "200":
+          description: Validation triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/spoke/da/validator/{dataset_urn}/method/dry-validate:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    post:
+      tags: [da]
+      operationId: da_dry_validate
+      summary: Dry-run validation (no write)
+      description: Requires group claim `da`.
+      responses:
+        "200":
+          description: Dry-run validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/da/validator/{dataset_urn}/event:
+    parameters:
+      - $ref: "#/components/parameters/DatasetUrn"
+    get:
+      tags: [da]
+      operationId: da_list_validation_events
+      summary: Validation run history
+      description: Requires group claim `da`.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Validation run history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      events:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ValidationRunEvent"
+                  - $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── DG: Metrics ───────────────────────────────────────────────────────────
+
+  /api/v1/spoke/dg/metrics:
+    get:
+      tags: [dg]
+      operationId: get_metrics_snapshot
+      summary: Get aggregated enterprise metrics snapshot
+      description: Requires group claim `dg`.
+      responses:
+        "200":
+          description: Enterprise metrics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsSnapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/spoke/dg/metrics/attr:
+    get:
+      tags: [dg]
+      operationId: get_metrics_attr
+      summary: Get metrics config (thresholds, alert rules)
+      description: Requires group claim `dg`.
+      responses:
+        "200":
+          description: Metrics config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsAttr"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    patch:
+      tags: [dg]
+      operationId: update_metrics_attr
+      summary: Update metrics config
+      description: Requires group claim `dg`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetricsAttrUpdate"
+      responses:
+        "200":
+          description: Updated metrics config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsAttr"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/spoke/dg/metrics/event:
+    get:
+      tags: [dg]
+      operationId: list_metrics_collection_events
+      summary: Metrics collection run history
+      description: Requires group claim `dg`.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Metrics collection run history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      events:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/MetricsEvent"
+                  - $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/spoke/dg/metrics/{department_id}:
+    parameters:
+      - $ref: "#/components/parameters/DepartmentId"
+    get:
+      tags: [dg]
+      operationId: get_department_metrics
+      summary: Get department-level metrics
+      description: Requires group claim `dg`.
+      responses:
+        "200":
+          description: Department metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentMetrics"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/spoke/dg/metrics/{department_id}/event:
+    parameters:
+      - $ref: "#/components/parameters/DepartmentId"
+    get:
+      tags: [dg]
+      operationId: list_department_metrics_events
+      summary: Department metrics history (time-series)
+      description: Requires group claim `dg`.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Department metrics history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      events:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/DepartmentMetricsEvent"
+                  - $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── DG: Overview ──────────────────────────────────────────────────────────
+
+  /api/v1/spoke/dg/overview:
+    get:
+      tags: [dg]
+      operationId: get_overview
+      summary: Get multi-perspective overview (graph + medallion)
+      description: Requires group claim `dg`.
+      responses:
+        "200":
+          description: Multi-perspective overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Overview"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/spoke/dg/overview/attr:
+    get:
+      tags: [dg]
+      operationId: get_overview_attr
+      summary: Get visualization config (layout, coloring, filters)
+      description: Requires group claim `dg`.
+      responses:
+        "200":
+          description: Visualization config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OverviewAttr"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    patch:
+      tags: [dg]
+      operationId: update_overview_attr
+      summary: Update visualization config
+      description: Requires group claim `dg`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OverviewAttrUpdate"
+      responses:
+        "200":
+          description: Updated visualization config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OverviewAttr"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/spoke/dg/overview/blind-spots:
+    get:
+      tags: [dg]
+      operationId: list_blind_spots
+      summary: List datasets with no taxonomy assignment or health score
+      description: Requires group claim `dg`.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Blind-spot datasets
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      datasets:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/BlindSpotDataset"
+                  - $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ── Hub pass-through ──────────────────────────────────────────────────────
+
+  /api/v1/hub/graphql:
+    post:
+      tags: [hub]
+      operationId: hub_graphql
+      summary: Proxy DataHub GraphQL queries
+      description: >
+        Forwards the request body to DataHub GMS GraphQL after JWT validation.
+        Any valid group (de, da, dg) may call this endpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                  description: GraphQL query string
+                  example: "{ search(input: { type: DATASET, query: \"orders\", start: 0, count: 10 }) { total } }"
+                variables:
+                  type: object
+                  additionalProperties: true
+                  description: GraphQL variables
+      responses:
+        "200":
+          description: DataHub GraphQL response (proxied)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+                  errors:
+                    type: array
+                    items:
+                      type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /api/v1/hub/openapi/{path}:
+    parameters:
+      - name: path
+        in: path
+        required: true
+        description: DataHub REST OpenAPI path to proxy
+        schema:
+          type: string
+          example: "entities/dataset"
+    get:
+      tags: [hub]
+      operationId: hub_openapi_proxy
+      summary: Proxy DataHub REST OpenAPI endpoints
+      description: >
+        Forwards GET requests to DataHub GMS REST API after JWT validation.
+        Any valid group (de, da, dg) may call this endpoint.
+      responses:
+        "200":
+          description: DataHub REST response (proxied)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+# ---------------------------------------------------------------------------
+# Components
+# ---------------------------------------------------------------------------
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        JWT access token issued by `POST /api/v1/auth/token`.
+        Lifetime: 15 minutes. Include in the `Authorization: Bearer <token>` header.
+
+  # ── Parameters ─────────────────────────────────────────────────────────────
+
+  parameters:
+    Offset:
+      name: offset
+      in: query
+      description: Pagination start index (0-based)
+      schema:
+        type: integer
+        default: 0
+        minimum: 0
+    Limit:
+      name: limit
+      in: query
+      description: Page size (max 100)
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+    Sort:
+      name: sort
+      in: query
+      description: "Sort field + direction, e.g. `quality_score_desc`, `occurred_at_desc`"
+      schema:
+        type: string
+        example: "occurred_at_desc"
+    DatasetUrn:
+      name: dataset_urn
+      in: path
+      required: true
+      description: URL-encoded DataHub dataset URN (e.g. `urn%3Ali%3Adataset%3A...`)
+      schema:
+        type: string
+        example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+    ConceptId:
+      name: concept_id
+      in: path
+      required: true
+      description: Ontology concept identifier
+      schema:
+        type: string
+        example: "concept-revenue-001"
+    ConfigId:
+      name: config_id
+      in: path
+      required: true
+      description: Ingestion config identifier
+      schema:
+        type: string
+        example: "cfg-mysql-prod-001"
+    DepartmentId:
+      name: department_id
+      in: path
+      required: true
+      description: Department identifier
+      schema:
+        type: string
+        example: "dept-marketing"
+
+  # ── Responses ──────────────────────────────────────────────────────────────
+
+  responses:
+    BadRequest:
+      description: Malformed request or invalid parameter values
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error_code: "INVALID_PARAMETER"
+            message: "The 'limit' field must be an integer between 1 and 100."
+            trace_id: "550e8400-e29b-41d4-a716-446655440000"
+    Unauthorized:
+      description: Missing, expired, or malformed access token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error_code: "UNAUTHORIZED"
+            message: "Access token is missing or has expired."
+            trace_id: "550e8400-e29b-41d4-a716-446655440001"
+    Forbidden:
+      description: Valid token but insufficient group claim
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error_code: "FORBIDDEN"
+            message: "Your account does not have the 'de' group claim required for this endpoint."
+            trace_id: "550e8400-e29b-41d4-a716-446655440002"
+    NotFound:
+      description: Resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error_code: "DATASET_NOT_FOUND"
+            message: "No dataset found for URN 'urn:li:dataset:unknown'."
+            trace_id: "550e8400-e29b-41d4-a716-446655440003"
+    Conflict:
+      description: Duplicate resource or operation already in progress
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error_code: "INGESTION_RUNNING"
+            message: "A run is already in progress for config 'cfg-mysql-prod-001'."
+            trace_id: "550e8400-e29b-41d4-a716-446655440004"
+    BadGateway:
+      description: DataHub GMS unreachable or returned an unexpected error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error_code: "DATAHUB_UNAVAILABLE"
+            message: "DataHub GMS did not respond within the timeout period."
+            trace_id: "550e8400-e29b-41d4-a716-446655440005"
+
+  # ── Schemas ────────────────────────────────────────────────────────────────
+
+  schemas:
+
+    # Primitives / shared
+
+    Timestamp:
+      type: string
+      format: date-time
+      description: ISO 8601 UTC timestamp
+      example: "2026-02-27T10:00:00.000Z"
+
+    ErrorResponse:
+      type: object
+      required: [error_code, message, trace_id]
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code
+          example: "DATASET_NOT_FOUND"
+        message:
+          type: string
+          description: Human-readable error description
+          example: "No dataset found for URN 'urn:li:dataset:unknown'."
+        trace_id:
+          type: string
+          format: uuid
+          description: UUID v4 trace identifier for log correlation
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+    PaginationMeta:
+      type: object
+      required: [offset, limit, total_count, resp_time]
+      properties:
+        offset:
+          type: integer
+          example: 0
+        limit:
+          type: integer
+          example: 20
+        total_count:
+          type: integer
+          example: 143
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    # Auth
+
+    AuthTokenRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: "engineer@example.com"
+        password:
+          type: string
+          format: password
+          example: "s3cr3t!"
+
+    AuthTokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in, resp_time]
+      properties:
+        access_token:
+          type: string
+          description: JWT access token (15-minute lifetime)
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        token_type:
+          type: string
+          example: "Bearer"
+        expires_in:
+          type: integer
+          description: Access token lifetime in seconds
+          example: 900
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    # System
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "ok"
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    ReadyResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "ready"
+        checks:
+          type: object
+          properties:
+            datahub:
+              type: boolean
+              example: true
+            postgresql:
+              type: boolean
+              example: true
+            redis:
+              type: boolean
+              example: true
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    # Quality
+
+    QualityScore:
+      type: object
+      required: [dataset_urn, score, resp_time]
+      properties:
+        dataset_urn:
+          type: string
+          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 82
+        grade:
+          type: string
+          enum: [A, B, C, D, F]
+          example: "B"
+        dimensions:
+          type: object
+          properties:
+            completeness:
+              type: integer
+              example: 90
+            freshness:
+              type: integer
+              example: 70
+            accuracy:
+              type: integer
+              example: 85
+            consistency:
+              type: integer
+              example: 80
+        computed_at:
+          $ref: "#/components/schemas/Timestamp"
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    QualityScoreEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+          example: "evt-qs-001"
+        dataset_urn:
+          type: string
+          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+        score:
+          type: integer
+          example: 78
+        occurred_at:
+          $ref: "#/components/schemas/Timestamp"
+
+    # Ontology
+
+    OntologyConcept:
+      type: object
+      required: [concept_id, name, status]
+      properties:
+        concept_id:
+          type: string
+          example: "concept-revenue-001"
+        name:
+          type: string
+          example: "Revenue"
+        category:
+          type: string
+          example: "Financial"
+        status:
+          type: string
+          enum: [approved, pending, rejected]
+          example: "approved"
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    OntologyConceptDetail:
+      allOf:
+        - $ref: "#/components/schemas/OntologyConcept"
+        - type: object
+          properties:
+            description:
+              type: string
+              example: "Total monetary value generated from sales before deductions."
+            parent_concept_id:
+              type: string
+              nullable: true
+              example: null
+            related_dataset_urns:
+              type: array
+              items:
+                type: string
+              example:
+                - "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+            resp_time:
+              $ref: "#/components/schemas/Timestamp"
+
+    OntologyConceptAttr:
+      type: object
+      properties:
+        concept_id:
+          type: string
+          example: "concept-revenue-001"
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          example: 0.93
+        parent_concept_id:
+          type: string
+          nullable: true
+          example: null
+        source:
+          type: string
+          example: "ai-generated"
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    OntologyConceptEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+          example: "evt-ont-001"
+        concept_id:
+          type: string
+          example: "concept-revenue-001"
+        action:
+          type: string
+          enum: [created, updated, approved, rejected]
+          example: "approved"
+        actor:
+          type: string
+          example: "user@example.com"
+        occurred_at:
+          $ref: "#/components/schemas/Timestamp"
+
+    # Ingestion
+
+    IngestionConfig:
+      type: object
+      required: [config_id, name, source_type, status, resp_time]
+      properties:
+        config_id:
+          type: string
+          example: "cfg-mysql-prod-001"
+        name:
+          type: string
+          example: "MySQL Production Ingestion"
+        source_type:
+          type: string
+          example: "mysql"
+        connection:
+          type: object
+          additionalProperties: true
+          description: Source-specific connection parameters
+          example:
+            host: "db.example.com"
+            port: 3306
+            database: "prod"
+        schedule:
+          type: string
+          description: Cron expression for scheduled runs
+          example: "0 2 * * *"
+        status:
+          type: string
+          enum: [active, inactive, running, error]
+          example: "active"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    IngestionConfigCreate:
+      type: object
+      required: [name, source_type]
+      properties:
+        name:
+          type: string
+          example: "MySQL Production Ingestion"
+        source_type:
+          type: string
+          example: "mysql"
+        connection:
+          type: object
+          additionalProperties: true
+          example:
+            host: "db.example.com"
+            port: 3306
+            database: "prod"
+        schedule:
+          type: string
+          example: "0 2 * * *"
+
+    IngestionConfigUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "MySQL Production Ingestion v2"
+        connection:
+          type: object
+          additionalProperties: true
+        schedule:
+          type: string
+          example: "0 3 * * *"
+        status:
+          type: string
+          enum: [active, inactive]
+
+    IngestionRunEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+          example: "evt-ing-001"
+        config_id:
+          type: string
+          example: "cfg-mysql-prod-001"
+        run_type:
+          type: string
+          enum: [run, dry_run]
+          example: "run"
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+          example: "completed"
+        records_ingested:
+          type: integer
+          nullable: true
+          example: 4820
+        error_message:
+          type: string
+          nullable: true
+          example: null
+        started_at:
+          $ref: "#/components/schemas/Timestamp"
+        completed_at:
+          $ref: "#/components/schemas/Timestamp"
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    # Validation
+
+    ValidationIssue:
+      type: object
+      properties:
+        type:
+          type: string
+          example: "freshness"
+        severity:
+          type: string
+          enum: [info, warning, error]
+          example: "warning"
+        detail:
+          type: string
+          example: "Last updated 3 days ago"
+
+    ValidationResult:
+      type: object
+      required: [dataset_urn, status, resp_time]
+      properties:
+        dataset_urn:
+          type: string
+          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+          example: "completed"
+        quality_score:
+          type: integer
+          nullable: true
+          example: 78
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationIssue"
+        recommendations:
+          type: array
+          items:
+            type: string
+          example:
+            - "Review freshness SLA"
+            - "Add ownership tag"
+        validated_at:
+          $ref: "#/components/schemas/Timestamp"
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    ValidationRunEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+          example: "evt-val-001"
+        dataset_urn:
+          type: string
+          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+        run_type:
+          type: string
+          enum: [validate, dry_validate]
+          example: "validate"
+        quality_score:
+          type: integer
+          nullable: true
+          example: 78
+        status:
+          type: string
+          enum: [completed, failed]
+          example: "completed"
+        occurred_at:
+          $ref: "#/components/schemas/Timestamp"
+
+    # Doc suggestions
+
+    DocSuggestion:
+      type: object
+      required: [dataset_urn, status, resp_time]
+      properties:
+        dataset_urn:
+          type: string
+          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+        status:
+          type: string
+          enum: [none, generating, ready, applied]
+          example: "ready"
+        suggested_description:
+          type: string
+          nullable: true
+          example: "Contains all customer purchase orders placed via the e-commerce platform."
+        suggested_column_docs:
+          type: array
+          nullable: true
+          items:
+            type: object
+            properties:
+              column_name:
+                type: string
+                example: "order_id"
+              suggested_description:
+                type: string
+                example: "Unique identifier for each order."
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    DocSuggestionAttr:
+      type: object
+      properties:
+        dataset_urn:
+          type: string
+          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+        confidence:
+          type: number
+          format: float
+          example: 0.87
+        source:
+          type: string
+          enum: [ai-generated, manual]
+          example: "ai-generated"
+        model_version:
+          type: string
+          example: "doc-gen-v2.1"
+        generated_at:
+          $ref: "#/components/schemas/Timestamp"
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    DocSuggestionEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+          example: "evt-doc-001"
+        dataset_urn:
+          type: string
+          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+        action:
+          type: string
+          enum: [generated, applied]
+          example: "generated"
+        actor:
+          type: string
+          example: "engineer@example.com"
+        occurred_at:
+          $ref: "#/components/schemas/Timestamp"
+
+    # Search
+
+    SearchResult:
+      type: object
+      properties:
+        dataset_urn:
+          type: string
+          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+        name:
+          type: string
+          example: "prod.orders"
+        platform:
+          type: string
+          example: "mysql"
+        description:
+          type: string
+          nullable: true
+          example: "Customer purchase orders."
+        quality_score:
+          type: integer
+          nullable: true
+          example: 82
+        relevance_score:
+          type: number
+          format: float
+          nullable: true
+          example: 0.94
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    # Text-to-SQL
+
+    TextToSqlContext:
+      type: object
+      properties:
+        dataset_urn:
+          type: string
+          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+        table_name:
+          type: string
+          example: "orders"
+        columns:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: "order_id"
+              data_type:
+                type: string
+                example: "BIGINT"
+              description:
+                type: string
+                nullable: true
+                example: "Unique order identifier."
+              is_primary_key:
+                type: boolean
+                example: true
+              is_foreign_key:
+                type: boolean
+                example: false
+        sample_values:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          example:
+            order_id: ["1001", "1002", "1003"]
+            status: ["shipped", "pending", "cancelled"]
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    JoinPath:
+      type: object
+      properties:
+        path_id:
+          type: string
+          example: "join-001"
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              from_urn:
+                type: string
+              to_urn:
+                type: string
+              join_condition:
+                type: string
+                example: "orders.customer_id = customers.id"
+        confidence:
+          type: number
+          format: float
+          example: 0.91
+
+    # Metrics (DG)
+
+    MetricsSnapshot:
+      type: object
+      properties:
+        snapshot_at:
+          $ref: "#/components/schemas/Timestamp"
+        total_datasets:
+          type: integer
+          example: 1420
+        avg_quality_score:
+          type: integer
+          example: 74
+        datasets_below_threshold:
+          type: integer
+          example: 87
+        departments_below_threshold:
+          type: array
+          items:
+            type: string
+          example: ["Marketing", "Legal"]
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    MetricsAttr:
+      type: object
+      properties:
+        quality_threshold:
+          type: integer
+          description: Minimum acceptable quality score
+          example: 70
+        alert_recipients:
+          type: array
+          items:
+            type: string
+            format: email
+          example: ["governance@example.com"]
+        collection_schedule:
+          type: string
+          description: Cron expression for metrics collection
+          example: "0 6 * * *"
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    MetricsAttrUpdate:
+      type: object
+      properties:
+        quality_threshold:
+          type: integer
+          example: 75
+        alert_recipients:
+          type: array
+          items:
+            type: string
+            format: email
+        collection_schedule:
+          type: string
+          example: "0 5 * * *"
+
+    MetricsEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+          example: "evt-met-001"
+        total_datasets:
+          type: integer
+          example: 1420
+        avg_quality_score:
+          type: integer
+          example: 74
+        occurred_at:
+          $ref: "#/components/schemas/Timestamp"
+
+    DepartmentMetrics:
+      type: object
+      properties:
+        department_id:
+          type: string
+          example: "dept-marketing"
+        department_name:
+          type: string
+          example: "Marketing"
+        total_datasets:
+          type: integer
+          example: 94
+        avg_quality_score:
+          type: integer
+          example: 65
+        datasets_below_threshold:
+          type: integer
+          example: 21
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    DepartmentMetricsEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+          example: "evt-dmt-001"
+        department_id:
+          type: string
+          example: "dept-marketing"
+        avg_quality_score:
+          type: integer
+          example: 63
+        occurred_at:
+          $ref: "#/components/schemas/Timestamp"
+
+    # Overview (DG)
+
+    Overview:
+      type: object
+      properties:
+        total_datasets:
+          type: integer
+          example: 1420
+        medallion_layers:
+          type: object
+          properties:
+            bronze:
+              type: integer
+              example: 540
+            silver:
+              type: integer
+              example: 620
+            gold:
+              type: integer
+              example: 260
+        graph_nodes:
+          type: integer
+          example: 1420
+        graph_edges:
+          type: integer
+          example: 3180
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    OverviewAttr:
+      type: object
+      properties:
+        layout:
+          type: string
+          enum: [graph, medallion, hybrid]
+          example: "hybrid"
+        coloring_field:
+          type: string
+          enum: [quality_score, medallion_layer, department]
+          example: "quality_score"
+        filters:
+          type: object
+          properties:
+            departments:
+              type: array
+              items:
+                type: string
+              example: ["Engineering", "Marketing"]
+            platforms:
+              type: array
+              items:
+                type: string
+              example: ["mysql", "snowflake"]
+        resp_time:
+          $ref: "#/components/schemas/Timestamp"
+
+    OverviewAttrUpdate:
+      type: object
+      properties:
+        layout:
+          type: string
+          enum: [graph, medallion, hybrid]
+        coloring_field:
+          type: string
+          enum: [quality_score, medallion_layer, department]
+        filters:
+          type: object
+          properties:
+            departments:
+              type: array
+              items:
+                type: string
+            platforms:
+              type: array
+              items:
+                type: string
+
+    BlindSpotDataset:
+      type: object
+      properties:
+        dataset_urn:
+          type: string
+          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.legacy_audit,PROD)"
+        name:
+          type: string
+          example: "prod.legacy_audit"
+        platform:
+          type: string
+          example: "mysql"
+        missing:
+          type: array
+          items:
+            type: string
+          example: ["taxonomy", "quality_score"]
