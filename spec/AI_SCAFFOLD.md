@@ -1,6 +1,6 @@
 # DataSpoke Baseline: AI Coding Scaffold
 
-> **Document Status**: Specification v0.4 (updated 2026-02-23)
+> **Document Status**: Specification v0.5 (updated 2026-02-27)
 > This document covers Goal 2 of the DataSpoke Baseline project: providing a ready-to-use scaffold so that an organization-specific dedicated data catalog (a "Spoke") can be built with AI in a short time.
 > Aligned with MANIFESTO v2 (user-group-based feature taxonomy).
 
@@ -59,17 +59,13 @@ The scaffold supports two categories of workflows (from MANIFESTO §4):
 │   ├── frontend.md             # Next.js/TypeScript implementer
 │   └── k8s-helm.md             # Helm/Kubernetes/Docker author
 ├── hooks/                      # Automated guardrail scripts
-│   ├── validate-commit.sh      # Enforce Conventional Commits, block AI trailers
-│   ├── protect-manifesto.sh    # Block MANIFESTO edits without explicit request
-│   ├── post-compact-context.sh # Reinject conventions after context compaction
-│   ├── auto-format.sh          # Auto-format Python/TypeScript on write (async)
-│   └── spec-propagation-reminder.sh  # Remind to propagate spec changes
+│   └── auto-format.sh          # Auto-format Python/TypeScript on write (async)
 ├── settings.json               # Tool permissions + hook configuration
 └── settings.local.json         # Local overrides (machine-specific approvals)
 ```
 
 The scaffold works alongside four other structural elements:
-- **`CLAUDE.md`** — root-level agent instructions: project context, architecture summary, design decisions, and the full Claude Code configuration reference
+- **`CLAUDE.md`** — compact root-level agent instructions: project context, key design decisions, spec hierarchy, and implementation workflow. Points to `spec/ARCHITECTURE.md` and this document for details
 - **`spec/`** — hierarchical specification documents (MANIFESTO → ARCHITECTURE → feature specs → plan logs). Feature specs split into `spec/feature/` (common/cross-cutting) and `spec/feature/spoke/` (user-group-specific DE/DA/DG)
 - **`dev_env/`** — local Kubernetes dev environment scripts
 - **`ref/`** — external source code for AI reference (version-locked DataHub v1.4.0 OSS source, downloaded via `ref/setup.sh`)
@@ -106,14 +102,14 @@ Commands are user-invoked multi-step workflows — scripted sequences of agent a
 
 Subagents are specialized Claude instances with focused system prompts. The main agent delegates to them automatically when the task context matches. They live in `.claude/agents/`.
 
-| Subagent | Trigger context | Scope | Memory |
-|----------|----------------|-------|--------|
-| `api-spec` | Designing or writing OpenAPI 3.0 specs in `api/` | API-first design; outputs YAML specs + companion markdown. Specs follow user-group URI routing (`/api/v1/spoke/[de\|da\|dg]/...`) | Session |
-| `backend` | Implementing FastAPI/Python in `src/api/`, `src/backend/`, `src/workflows/`, `src/shared/` | Backend services for all user groups (DE/DA/DG). Internal service decomposition per `spec/feature/` specs | Project (persists across sessions in `.claude/agent-memory/`) |
-| `frontend` | Implementing Next.js/TypeScript in `src/frontend/` | Portal-style UI with user-group entry points (DE, DA, DG), components, hooks, API client | Project (persists across sessions in `.claude/agent-memory/`) |
-| `k8s-helm` | Writing Helm charts, Dockerfiles, or dev env scripts | Container images, K8s manifests, Helm chart templates | Session |
+| Subagent | Trigger context | Tools | Scope |
+|----------|----------------|-------|-------|
+| `api-spec` | Designing or writing OpenAPI 3.0 specs in `api/` | Read, Write, Edit, Glob, Grep | API-first design; outputs YAML specs + companion markdown. Specs follow user-group URI routing (`/api/v1/spoke/[de\|da\|dg]/...`) |
+| `backend` | Implementing FastAPI/Python in `src/api/`, `src/backend/`, `src/workflows/`, `src/shared/` | Read, Write, Edit, Glob, Grep, Bash | Backend services for all user groups (DE/DA/DG). Can run `pytest`, `python3`, `alembic`, `pip` to verify its own work |
+| `frontend` | Implementing Next.js/TypeScript in `src/frontend/` | Read, Write, Edit, Glob, Grep, Bash | Portal-style UI with user-group entry points (DE, DA, DG). Can run `npm`, `npx`, `jest`, `tsc` to verify its own work |
+| `k8s-helm` | Writing Helm charts, Dockerfiles, or dev env scripts | Read, Write, Edit, Glob, Grep, Bash | Container images, K8s manifests, Helm chart templates |
 
-`backend` and `frontend` subagents use **project memory** — they accumulate module locations, naming patterns, and architectural decisions in `.claude/agent-memory/` and carry that knowledge into future sessions without requiring re-orientation.
+`backend` and `frontend` subagents have Bash access so they can run tests and type-checks to verify their own output before reporting completion.
 
 ---
 
@@ -133,20 +129,24 @@ This allows the agent to freely inspect the local cluster state while requiring 
 
 ## Current Status
 
-The scaffold itself is **fully operational**. All skills, commands, subagents, and permission rules are in place and functional.
+The scaffold has been **refactored for implementation readiness** (v0.5, 2026-02-27). Key changes from v0.4:
+
+- **CLAUDE.md slimmed** from ~250 lines to ~60 lines — duplicated architecture/layout content removed, points to `spec/ARCHITECTURE.md` for details
+- **Hooks reduced** from 5 to 1 — only `auto-format.sh` remains. Commit validation, MANIFESTO protection, spec propagation reminders, and post-compaction context injection are now handled by CLAUDE.md instructions (lower overhead, same effect)
+- **Subagent tool access fixed** — `backend` and `frontend` agents now have Bash access for running tests, type-checks, and build tools
+- **Implementation workflow documented** in CLAUDE.md — standard subagent sequencing for end-to-end feature implementation (api-spec → backend → frontend → k8s-helm)
 
 ### Scaffold components
 
 | Component | Status |
 |-----------|--------|
-| `.claude/` scaffold (skills, commands, agents, settings) | Complete |
+| `.claude/` scaffold (skills, commands, agents, settings) | Complete (v0.5) |
 | `spec/` hierarchy (MANIFESTO → ARCHITECTURE → feature → plan) | Complete |
 | `dev_env/` local Kubernetes environment (DataHub + example sources) | Complete |
 | `ref/` AI reference materials (DataHub v1.4.0 source) | Complete |
 | `api/` standalone OpenAPI specs | Not yet created |
 | `src/` application source code | Not yet created |
 | `helm-charts/` deployment packaging | Not yet created |
-| `.claude/agent-memory/` accumulated subagent knowledge | Not yet populated (no implementation sessions have run) |
 
 ### Spec inventory
 
@@ -168,7 +168,7 @@ Documents authored so far (use `/dataspoke-plan-write` to add more):
 
 **Next steps**: Author user-group-specific feature specs in `spec/feature/spoke/` using `/dataspoke-plan-write` (scope 3). The MANIFESTO defines the following features awaiting specs: Deep Technical Spec Ingestion (DE), Online Data Validator (DE/DA), Automated Documentation Generation (DE), Natural Language Search (DA), Text-to-SQL Optimized Metadata (DA), Enterprise Metrics Time-Series Monitoring (DG), Multi-Perspective Data Overview (DG).
 
-The project is in the **specification and dev-environment phase**. The scaffold is ready for an organization to fork and begin AI-assisted implementation of their custom Spoke.
+The project is transitioning from the **specification phase to the implementation phase**. Specs and dev environment are complete; the scaffold is now optimized for implementation workflows (subagent sequencing, self-verification, reduced context overhead).
 
 ---
 
@@ -202,7 +202,7 @@ Fork dataspoke-baseline
 5. **Run `/dataspoke-dev-env-install`** — bring up the local DataHub environment
 6. **Run `/dataspoke-plan-write`** (scope 4: impl plan) — create implementation plans in `spec/impl/` with agent team setup and subagent sequencing
 7. **Use `api-spec` subagent** — design user-group API contracts (`/api/v1/spoke/[group]/...`) per the feature specs
-8. **Use `backend` subagent** — implement feature services iteratively, leveraging project memory
+8. **Use `backend` subagent** — implement feature services iteratively
 9. **Use `frontend` subagent** — build the portal-style UI with user-group entry points
 10. **Use `k8s-helm` subagent** — package and deploy to your target environment
 
@@ -212,7 +212,7 @@ Steps 2–4 and 6 use `/dataspoke-plan-write` to ensure every spec follows MANIF
 
 | Without scaffold | With scaffold |
 |-----------------|--------------|
-| Agent must learn project layout from scratch each session | `CLAUDE.md` + subagent project memory provides immediate context |
+| Agent must learn project layout from scratch each session | `CLAUDE.md` + spec hierarchy provides immediate context |
 | Spec authoring requires knowing the hierarchy, templates, and naming rules upfront | `/dataspoke-plan-write` guides the user through scope → Q&A → plan review → writing → scaffold recommendations |
 | No standard for spec documents → inconsistent output | `plan-doc` skill (invoked by `dataspoke-plan-write`) enforces spec hierarchy and format |
 | Manual cluster setup and teardown | `dataspoke-dev-env-install/uninstall` commands handle it end-to-end |
@@ -238,5 +238,5 @@ The `api-spec` subagent produces OpenAPI specs as standalone artifacts before ba
 ### 5. Least privilege for agent tools
 The permissions model is conservative by default. Agents can read and inspect freely but cannot make changes to shared or persistent state without user confirmation. This is especially important for cluster operations.
 
-### 6. Persistent subagent memory
-`backend` and `frontend` subagents accumulate project knowledge in `.claude/agent-memory/` across sessions. This means the second session is more productive than the first — the agent already knows where things are and how decisions were made.
+### 6. Self-verifying subagents
+`backend` and `frontend` subagents have Bash access to run tests and type-checks. They verify their own output before reporting completion, catching errors early without requiring the main agent to re-check.
