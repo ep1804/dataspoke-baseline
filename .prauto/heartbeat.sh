@@ -1,0 +1,285 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PRAUTO_DIR="$SCRIPT_DIR"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# ---------------------------------------------------------------------------
+# Source libraries
+# ---------------------------------------------------------------------------
+# shellcheck source=lib/helpers.sh
+source "$PRAUTO_DIR/lib/helpers.sh"
+
+# ---------------------------------------------------------------------------
+# Trap: ensure lock is released on unexpected exit
+# ---------------------------------------------------------------------------
+SECRETS_TEMP_FILE=""
+WORKTREE_DIR=""
+cleanup() {
+  # Remove worktree if one was created (cd away first — can't remove cwd)
+  if [[ -n "$WORKTREE_DIR" ]] && [[ -d "$WORKTREE_DIR" ]]; then
+    cd "$REPO_DIR"
+    git worktree remove --force "$WORKTREE_DIR" 2>/dev/null || rm -rf "$WORKTREE_DIR"
+    git worktree prune 2>/dev/null || true
+    info "Worktree ${WORKTREE_DIR} cleaned up."
+  fi
+  # Restore secrets if they were moved out
+  if [[ -n "$SECRETS_TEMP_FILE" ]] && [[ -f "$SECRETS_TEMP_FILE" ]]; then
+    mv "$SECRETS_TEMP_FILE" "$PRAUTO_DIR/config.local.env"
+    info "Restored config.local.env."
+  fi
+  # Release lock
+  if [[ -f "${PRAUTO_DIR}/state/heartbeat.lock" ]]; then
+    local lock_pid
+    lock_pid=$(cat "${PRAUTO_DIR}/state/heartbeat.lock" 2>/dev/null || echo "")
+    if [[ "$lock_pid" == "$$" ]]; then
+      rm -f "${PRAUTO_DIR}/state/heartbeat.lock"
+      info "Lock released."
+    fi
+  fi
+}
+trap cleanup EXIT
+
+echo ""
+echo "=== prauto heartbeat — $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 1: Acquire lock
+# ---------------------------------------------------------------------------
+# shellcheck source=lib/state.sh
+source "$PRAUTO_DIR/lib/state.sh"
+
+if ! acquire_lock; then
+  exit 0
+fi
+info "Lock acquired (PID $$)."
+
+# ---------------------------------------------------------------------------
+# Step 2: Load config
+# ---------------------------------------------------------------------------
+load_config "$PRAUTO_DIR"
+info "Config loaded (worker: ${PRAUTO_WORKER_ID})."
+
+# Export secrets only when non-empty; otherwise unset so CLIs use system auth.
+if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+  export ANTHROPIC_API_KEY
+else
+  unset ANTHROPIC_API_KEY
+  info "ANTHROPIC_API_KEY not set — claude will use system credentials."
+fi
+if [[ -n "${GH_TOKEN:-}" ]]; then
+  export GH_TOKEN
+else
+  unset GH_TOKEN
+  info "GH_TOKEN not set — gh will use system credentials."
+fi
+
+# Check required tools
+ensure_command "claude"
+ensure_command "gh"
+ensure_command "git"
+ensure_command "jq"
+
+# ---------------------------------------------------------------------------
+# Source remaining libraries (need config loaded first)
+# ---------------------------------------------------------------------------
+# shellcheck source=lib/quota.sh
+source "$PRAUTO_DIR/lib/quota.sh"
+# shellcheck source=lib/issues.sh
+source "$PRAUTO_DIR/lib/issues.sh"
+# shellcheck source=lib/claude.sh
+source "$PRAUTO_DIR/lib/claude.sh"
+# shellcheck source=lib/git-ops.sh
+source "$PRAUTO_DIR/lib/git-ops.sh"
+
+# Ensure state dirs exist
+ensure_state_dirs
+
+# Change to repo root for all git operations
+cd "$REPO_DIR"
+
+# ---------------------------------------------------------------------------
+# Step 3: Secure secrets (move config.local.env out of repo tree)
+# ---------------------------------------------------------------------------
+SECRETS_TEMP_FILE="/tmp/.prauto-secrets-$$"
+cp "$PRAUTO_DIR/config.local.env" "$SECRETS_TEMP_FILE"
+rm -f "$PRAUTO_DIR/config.local.env"
+info "Secrets secured (moved out of repo tree)."
+
+# ---------------------------------------------------------------------------
+# Step 4: Check token quota
+# ---------------------------------------------------------------------------
+if ! check_quota; then
+  warn "Token quota exhausted or auth failed. Exiting."
+  exit 0
+fi
+info "Token quota available."
+
+# ---------------------------------------------------------------------------
+# Step 5: Resume interrupted job
+# ---------------------------------------------------------------------------
+if has_active_job; then
+  info "Found active job. Attempting resume..."
+  load_job
+
+  # Check max retries
+  if [[ "$JOB_RETRIES" -ge "$PRAUTO_MAX_RETRIES_PER_JOB" ]]; then
+    warn "Job for issue #${JOB_ISSUE_NUMBER} exceeded max retries (${JOB_RETRIES}/${PRAUTO_MAX_RETRIES_PER_JOB})."
+    abandon_job
+    exit 0
+  fi
+
+  # Increment retries and update heartbeat timestamp
+  bump_heartbeat
+  info "Resuming job for issue #${JOB_ISSUE_NUMBER} (phase: ${JOB_PHASE}, retry: ${JOB_RETRIES})."
+
+  # Create a worktree for the job's branch
+  create_branch "$JOB_ISSUE_NUMBER"
+  cd "$WORKTREE_DIR"
+
+  case "$JOB_PHASE" in
+    analysis)
+      # Re-run analysis from scratch (cheap)
+      run_analysis "$JOB_ISSUE_NUMBER" "$JOB_ISSUE_TITLE" ""
+      update_job_field "phase" "implementation"
+      update_job_field "session_id" ""
+      # Fall through to implementation
+      run_implementation "$JOB_ISSUE_NUMBER" "$JOB_BRANCH" "$ANALYSIS_OUTPUT"
+      update_job_field "phase" "pr"
+      update_job_field "session_id" "$IMPL_SESSION_ID"
+      # Fall through to PR
+      push_branch "$JOB_BRANCH"
+      create_or_update_pr "$JOB_ISSUE_NUMBER" "$JOB_ISSUE_TITLE" "$JOB_BRANCH"
+      # Update labels
+      gh issue edit "$JOB_ISSUE_NUMBER" -R "$PRAUTO_GITHUB_REPO" \
+        --remove-label "$PRAUTO_GITHUB_LABEL_WIP" \
+        --add-label "$PRAUTO_GITHUB_LABEL_REVIEW" 2>/dev/null || true
+      complete_job
+      ;;
+    implementation)
+      run_implementation "$JOB_ISSUE_NUMBER" "$JOB_BRANCH" "" "$JOB_SESSION_ID"
+      update_job_field "phase" "pr"
+      update_job_field "session_id" "$IMPL_SESSION_ID"
+      push_branch "$JOB_BRANCH"
+      create_or_update_pr "$JOB_ISSUE_NUMBER" "$JOB_ISSUE_TITLE" "$JOB_BRANCH"
+      gh issue edit "$JOB_ISSUE_NUMBER" -R "$PRAUTO_GITHUB_REPO" \
+        --remove-label "$PRAUTO_GITHUB_LABEL_WIP" \
+        --add-label "$PRAUTO_GITHUB_LABEL_REVIEW" 2>/dev/null || true
+      complete_job
+      ;;
+    pr-review)
+      run_pr_review "$JOB_ISSUE_NUMBER" "$JOB_BRANCH" "" "$JOB_SESSION_ID"
+      update_job_field "phase" "pr"
+      update_job_field "session_id" "$REVIEW_SESSION_ID"
+      push_branch "$JOB_BRANCH"
+      create_or_update_pr "$JOB_ISSUE_NUMBER" "$JOB_ISSUE_TITLE" "$JOB_BRANCH"
+      complete_job
+      ;;
+    pr)
+      push_branch "$JOB_BRANCH"
+      create_or_update_pr "$JOB_ISSUE_NUMBER" "$JOB_ISSUE_TITLE" "$JOB_BRANCH"
+      gh issue edit "$JOB_ISSUE_NUMBER" -R "$PRAUTO_GITHUB_REPO" \
+        --remove-label "$PRAUTO_GITHUB_LABEL_WIP" \
+        --add-label "$PRAUTO_GITHUB_LABEL_REVIEW" 2>/dev/null || true
+      complete_job
+      ;;
+    *)
+      warn "Unknown phase: ${JOB_PHASE}. Abandoning job."
+      abandon_job
+      ;;
+  esac
+
+  info "Resume complete. Exiting."
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Step 6: Check open PRs for reviewer comments
+# ---------------------------------------------------------------------------
+if find_actionable_prs; then
+  info "Addressing reviewer feedback on PR #${ACTIONABLE_PR_NUMBER}..."
+
+  # Create job state for PR review
+  save_job "$ACTIONABLE_PR_ISSUE" "" "$ACTIONABLE_PR_BRANCH" "pr-review" "pr-review"
+
+  # Create a worktree for the PR branch
+  checkout_branch_worktree "$ACTIONABLE_PR_BRANCH"
+  cd "$WORKTREE_DIR"
+
+  # Run PR review phase
+  run_pr_review "$ACTIONABLE_PR_ISSUE" "$ACTIONABLE_PR_BRANCH" "$ACTIONABLE_COMMENTS"
+  update_job_field "phase" "pr"
+  update_job_field "session_id" "$REVIEW_SESSION_ID"
+
+  # Push and update PR
+  push_branch "$ACTIONABLE_PR_BRANCH"
+  create_or_update_pr "$ACTIONABLE_PR_ISSUE" "" "$ACTIONABLE_PR_BRANCH"
+
+  # Complete job
+  complete_job
+  info "PR review complete. Exiting."
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Step 7: Find eligible issue
+# ---------------------------------------------------------------------------
+if ! find_eligible_issue; then
+  info "No work to do. Exiting."
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Step 8: Claim issue
+# ---------------------------------------------------------------------------
+if ! claim_issue "$FOUND_ISSUE_NUMBER"; then
+  warn "Failed to claim issue #${FOUND_ISSUE_NUMBER}. Exiting."
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Step 9: Create branch
+# ---------------------------------------------------------------------------
+create_branch "$FOUND_ISSUE_NUMBER"
+cd "$WORKTREE_DIR"
+
+# Save job state
+save_job "$FOUND_ISSUE_NUMBER" "$FOUND_ISSUE_TITLE" "$BRANCH_NAME" "issue" "analysis"
+
+# ---------------------------------------------------------------------------
+# Step 10: Phase 1 — Analysis
+# ---------------------------------------------------------------------------
+info "Starting analysis phase for issue #${FOUND_ISSUE_NUMBER}..."
+run_analysis "$FOUND_ISSUE_NUMBER" "$FOUND_ISSUE_TITLE" "$FOUND_ISSUE_BODY"
+update_job_field "phase" "implementation"
+
+# ---------------------------------------------------------------------------
+# Step 11: Phase 2 — Implementation
+# ---------------------------------------------------------------------------
+info "Starting implementation phase for issue #${FOUND_ISSUE_NUMBER}..."
+run_implementation "$FOUND_ISSUE_NUMBER" "$BRANCH_NAME" "$ANALYSIS_OUTPUT"
+update_job_field "phase" "pr"
+update_job_field "session_id" "$IMPL_SESSION_ID"
+
+# ---------------------------------------------------------------------------
+# Step 12: Create/update PR
+# ---------------------------------------------------------------------------
+push_branch "$BRANCH_NAME"
+create_or_update_pr "$FOUND_ISSUE_NUMBER" "$FOUND_ISSUE_TITLE" "$BRANCH_NAME"
+
+# ---------------------------------------------------------------------------
+# Step 13: Complete job
+# ---------------------------------------------------------------------------
+# Update labels: remove wip, add review
+gh issue edit "$FOUND_ISSUE_NUMBER" -R "$PRAUTO_GITHUB_REPO" \
+  --remove-label "$PRAUTO_GITHUB_LABEL_WIP" \
+  --add-label "$PRAUTO_GITHUB_LABEL_REVIEW" 2>/dev/null || true
+
+complete_job
+
+# ---------------------------------------------------------------------------
+# Steps 14-15: Restore secrets and release lock (handled by trap)
+# ---------------------------------------------------------------------------
+info "Heartbeat complete."
