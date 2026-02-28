@@ -76,6 +76,12 @@ else
   info "GH_TOKEN not set — gh will use system credentials."
 fi
 
+# Resolve the GitHub login of the authenticated worker (single source of truth from GH_TOKEN).
+PRAUTO_GITHUB_ACTOR=$(gh api user --jq '.login' 2>/dev/null) || {
+  error "Failed to resolve GitHub actor from GH_TOKEN / system gh auth. Is gh authenticated?"
+}
+info "GitHub actor: ${PRAUTO_GITHUB_ACTOR}"
+
 # Check required tools
 ensure_command "claude"
 ensure_command "gh"

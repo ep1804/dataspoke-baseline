@@ -11,6 +11,41 @@ See `spec/AI_PRAUTO.md` for the full specification.
 - `git` configured for the repository
 - `jq` for JSON processing
 
+## Optional: Dedicated GitHub Bot Account
+
+Running prauto under a separate GitHub account (e.g., `youraccount-prauto`) keeps bot activity visually distinct from human commits and PR comments. This is optional — prauto works fine with the repo owner's credentials.
+
+### 1. Invite the bot account as a collaborator
+
+From the repo owner account, go to:
+
+```
+https://github.com/youraccount/yourrepo/settings/access
+```
+
+Search for the bot account and send the invitation. For personal repositories, collaborators receive Write access by default (no role selector is shown). For organization repositories, select the **Write** role.
+
+### 2. Accept the invitation
+
+Log in as the bot account and accept the collaborator invitation at `https://github.com/notifications`.
+
+### 3. Create a classic PAT from the bot account
+
+Go to `https://github.com/settings/tokens/new` (logged in as the bot account) and check the **`repo`** scope.
+
+> **Why classic PAT, not fine-grained?**
+> Fine-grained PATs require the Resource owner to be the token creator or one of their organizations. Another personal account (the repo owner) cannot appear as a Resource owner, so fine-grained PATs cannot be scoped to a repo owned by a different personal account.
+
+### 4. Set the token in `config.local.env`
+
+```bash
+GH_TOKEN="ghp_xxxxxxxxxxxx"
+```
+
+All GitHub API operations (issue labels, comments, PR creation) will then run as the bot account. Git commit identity remains whatever is set in `PRAUTO_GIT_AUTHOR_NAME` / `PRAUTO_GIT_AUTHOR_EMAIL`.
+
+---
+
 ## Setup
 
 1. Copy the instance config template:
