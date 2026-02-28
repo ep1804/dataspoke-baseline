@@ -424,7 +424,7 @@ Shared by all features.
 | Frontend Testing | Jest, React Testing Library |
 | E2E Testing | Playwright |
 | Linting | ruff (Python), ESLint (TypeScript) |
-| Formatting | black (Python), Prettier (TypeScript) |
+| Formatting | ruff format (Python), Prettier (TypeScript) |
 | Type Checking | mypy (Python), TypeScript compiler |
 | CI/CD | GitHub Actions |
 | Container Runtime | Docker |

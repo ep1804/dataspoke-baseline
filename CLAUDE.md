@@ -42,7 +42,8 @@ When both `_en.md` and `_kr.md` exist, read only English unless directed otherwi
 ## Git Commit Convention
 
 - Conventional Commits: `<type>: <subject>` (e.g. `feat:`, `fix:`, `docs:`, `refactor:`)
-- Body optional, **max 3 lines** if included
+- **Always run `git diff` (or `git diff --staged`) and base the commit message on the actual diff output**, not on prior conversation context or memory of what was changed
+- Body optional, **max 5 lines** if included
 
 ## Implementation Workflow
 

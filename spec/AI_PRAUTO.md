@@ -27,13 +27,14 @@
 
 ### What prauto is
 
-Prauto is a cron-triggered bash-based worker that automates the issue-to-PR pipeline. Each heartbeat, it:
+Prauto is a cron-triggered bash-based worker that automates the issue-to-PR pipeline. Each heartbeat performs **at most one job** — it:
 
 1. Checks whether Claude Code API tokens are available
-2. Resumes any interrupted job from a prior heartbeat
-3. Finds an eligible GitHub issue via label-based discovery
-4. Invokes Claude Code CLI to analyze the issue and implement changes
-5. Creates or updates a pull request with the results
+2. Resumes any interrupted job from a prior heartbeat (if found, exits after completion)
+3. Checks open PRs for reviewer comments that need action (if found, exits after addressing)
+4. Finds an eligible GitHub issue via label-based discovery
+5. Invokes Claude Code CLI to analyze the issue and implement changes
+6. Creates or updates a pull request with the results
 
 ### Relationship to `claude-code-action`
 
@@ -61,8 +62,8 @@ Docker, Kubernetes, and cloud runner deployments are out of scope for v1 and wil
 
 ```
 .prauto/
-├── config.env                  # [COMMITTED] Worker identity, GitHub settings, Claude limits
-├── config.local.env            # [GITIGNORED] Secrets: ANTHROPIC_API_KEY, GH_TOKEN
+├── config.env                  # [COMMITTED] Shared settings: GitHub labels, tool lists
+├── config.local.env            # [GITIGNORED] Instance-specific: identity, Claude limits, secrets
 ├── heartbeat.sh                # [COMMITTED] Main cron entry point
 ├── lib/
 │   ├── helpers.sh              # [COMMITTED] Shared bash helpers (info, warn, error)
@@ -97,39 +98,47 @@ Two lines appended to the repository root `.gitignore`:
 
 ## Worker Identity and Configuration
 
-### `config.env` — committed configuration
+### `config.env` — committed shared configuration
+
+Settings here are shared across all prauto instances cloned from this repo. They define repository-level conventions that should stay consistent.
 
 ```bash
-# Identity
-PRAUTO_WORKER_ID="prauto01"
-PRAUTO_GIT_AUTHOR_NAME="prauto01"
-PRAUTO_GIT_AUTHOR_EMAIL="prauto01@dataspoke.local"
-
 # GitHub
 PRAUTO_GITHUB_REPO="ep1804/dataspoke-baseline"
 PRAUTO_GITHUB_LABEL_READY="prauto:ready"
 PRAUTO_GITHUB_LABEL_WIP="prauto:wip"
-PRAUTO_GITHUB_LABEL_DONE="prauto:done"
+PRAUTO_GITHUB_LABEL_REVIEW="prauto:review"
 PRAUTO_GITHUB_LABEL_FAILED="prauto:failed"
 PRAUTO_BASE_BRANCH="dev"
 PRAUTO_BRANCH_PREFIX="prauto/"
 
-# Claude Code CLI
-PRAUTO_CLAUDE_MODEL="sonnet"
-PRAUTO_CLAUDE_MAX_TURNS_ANALYSIS=10
-PRAUTO_CLAUDE_MAX_TURNS_IMPLEMENTATION=50
-PRAUTO_CLAUDE_MAX_BUDGET_ANALYSIS="0.50"
-PRAUTO_CLAUDE_MAX_BUDGET_IMPLEMENTATION="2.00"
-
-# Limits
-PRAUTO_HEARTBEAT_INTERVAL_MINUTES=15
+# Limits (defaults — can be overridden in config.local.env)
 PRAUTO_MAX_RETRIES_PER_JOB=3
 ```
 
-### `config.local.env` — secrets (gitignored)
+### `config.local.env` — instance-specific configuration (gitignored)
+
+Each prauto instance (e.g., different repo-clone directories on the same machine or different machines) maintains its own `config.local.env`. This file holds the worker identity, Claude CLI limits, and secrets. A single developer machine may run multiple prauto instances (e.g., `prauto01` in `~/repos/dataspoke-a/`, `prauto02` in `~/repos/dataspoke-b/`) sharing the same GitHub credential but with distinct identities.
 
 ```bash
 # Never commit this file
+
+# Identity (unique per instance)
+PRAUTO_WORKER_ID="prauto01"
+PRAUTO_GIT_AUTHOR_NAME="prauto01"
+PRAUTO_GIT_AUTHOR_EMAIL="prauto01@dataspoke.local"
+
+# Claude Code CLI (tune per instance based on machine capacity)
+PRAUTO_CLAUDE_MODEL="sonnet"
+PRAUTO_CLAUDE_MAX_TURNS_ANALYSIS=10
+PRAUTO_CLAUDE_MAX_TURNS_IMPLEMENTATION=50
+PRAUTO_HEARTBEAT_INTERVAL_MINUTES=30
+
+# Budget caps (optional — only effective with API billing, ignored on Pro/Max plans)
+# PRAUTO_CLAUDE_MAX_BUDGET_ANALYSIS="0.50"
+# PRAUTO_CLAUDE_MAX_BUDGET_IMPLEMENTATION="2.00"
+
+# Secrets
 ANTHROPIC_API_KEY="sk-ant-..."
 GH_TOKEN="ghp_..."
 ```
@@ -166,30 +175,40 @@ crontab trigger
     │
     ├── 2. Load config ───────────── (config.env + config.local.env)
     │
-    ├── 3. Check token quota ─────── (lib/quota.sh)
+    ├── 3. Secure secrets ─────────── (move config.local.env out of repo tree)
+    │
+    ├── 4. Check token quota ─────── (lib/quota.sh)
     │       └── if exhausted → exit
     │
-    ├── 4. Resume interrupted job ── (lib/state.sh)
-    │       ├── if active job exists → resume from saved phase
+    ├── 5. Resume interrupted job ── (lib/state.sh)
+    │       ├── if active job exists → resume from saved phase → exit
     │       └── if completed or no job → continue
     │
-    ├── 5. Find eligible issue ───── (lib/issues.sh)
+    ├── 6. Check open PRs ────────── (lib/git-ops.sh)
+    │       ├── if PR has reviewer comments → address feedback, push, reply → exit
+    │       └── if no actionable comments → continue
+    │
+    ├── 7. Find eligible issue ───── (lib/issues.sh)
     │       └── if none found → exit
     │
-    ├── 6. Claim issue ───────────── (add prauto:wip label, comment)
+    ├── 8. Claim issue ───────────── (add prauto:wip label, comment)
     │
-    ├── 7. Create branch ─────────── (lib/git-ops.sh)
+    ├── 9. Create branch ─────────── (lib/git-ops.sh)
     │
-    ├── 8. Phase 1: Analysis ─────── (lib/claude.sh, read-only)
+    ├── 10. Phase 1: Analysis ────── (lib/claude.sh, read-only)
     │
-    ├── 9. Phase 2: Implementation ─ (lib/claude.sh, read+write)
+    ├── 11. Phase 2: Implementation  (lib/claude.sh, read+write)
     │
-    ├── 10. Create/update PR ──────── (lib/git-ops.sh)
+    ├── 12. Create/update PR ──────── (lib/git-ops.sh)
     │
-    ├── 11. Complete job ──────────── (lib/state.sh)
+    ├── 13. Complete job ──────────── (lib/state.sh)
     │
-    └── 12. Release lock
+    ├── 14. Restore secrets ──────── (move config.local.env back)
+    │
+    └── 15. Release lock
 ```
+
+**One job per heartbeat**: Steps 5 and 6 exit after completing their work. A single heartbeat never runs more than one Claude session to keep resource usage predictable and simplify state management.
 
 ### Bash conventions
 
@@ -204,8 +223,8 @@ All scripts follow the project's established patterns from `dev_env/`:
 ### Cron setup
 
 ```bash
-# Run heartbeat every 15 minutes, Mon-Fri 9:00-18:00 KST
-*/15 9-18 * * 1-5 cd /path/to/dataspoke-baseline && .prauto/heartbeat.sh >> .prauto/state/heartbeat.log 2>&1
+# Run heartbeat every 30 minutes, Mon-Fri 9:00-18:00 KST
+*/30 9-18 * * 1-5 cd /path/to/dataspoke-baseline && .prauto/heartbeat.sh >> .prauto/state/heartbeat.log 2>&1
 ```
 
 ---
@@ -238,8 +257,8 @@ This costs negligible tokens. If the call fails with a rate-limit or quota error
 
 When quota is exhausted:
 
-- If no active job: exit cleanly. Next heartbeat retries.
-- If mid-job: save current state (phase, session ID, retry count) and exit. Next heartbeat resumes.
+- If no active job: release lock and exit cleanly. Next heartbeat retries.
+- If mid-job: save current state (phase, session ID, retry count), release lock, and exit. Next heartbeat resumes.
 
 ---
 
@@ -252,6 +271,7 @@ When quota is exhausted:
   "issue_number": 42,
   "issue_title": "Implement health check endpoint",
   "branch": "prauto/I-42",
+  "source": "issue",
   "phase": "implementation",
   "session_id": "550e8400-e29b-41d4-a716-446655440000",
   "started_at": "2026-02-28T10:00:00Z",
@@ -262,38 +282,60 @@ When quota is exhausted:
 
 ### Phases
 
+There are two job entry points: **new issue** (full pipeline) and **PR review** (implementation only).
+
 ```
-(no job) ──→ analysis ──→ implementation ──→ pr ──→ (complete)
-                │               │            │
-                └───────────────┴────────────┴──→ (interrupted)
-                                                      │
-                                    next heartbeat ←───┘
+New issue:
+  (no job) ──→ analysis ──→ implementation ──→ pr ──→ (complete)
+                  │               │            │
+                  └───────────────┴────────────┴──→ (interrupted)
+                                                        │
+                                      next heartbeat ←──┘
+
+PR review:
+  (no job) ──→ pr-review ──→ pr ──→ (complete)
+                   │          │
+                   └──────────┴──→ (interrupted)
+                                        │
+                          next heartbeat ←──┘
 ```
 
 | Phase | Description | On interruption |
 |-------|-------------|-----------------|
 | `analysis` | Claude reads issue + codebase, produces a plan | Restart analysis from scratch |
 | `implementation` | Claude writes code, runs tests, commits | Resume via `claude --resume <session_id>` |
+| `pr-review` | Claude addresses reviewer feedback on existing PR, commits | Resume via `claude --resume <session_id>` |
 | `pr` | Push branch, create/update PR, comment | Retry PR creation |
 
 ### Resume logic
 
 When a heartbeat finds `current-job.json`:
 
-1. Read `phase`, `session_id`, `retries`
+1. Read `source`, `phase`, `session_id`, `retries`
 2. If `retries >= PRAUTO_MAX_RETRIES_PER_JOB`: abandon job, comment on issue, apply `prauto:failed` label
 3. Increment `retries`, update `last_heartbeat`
 4. Resume from the saved phase:
    - `analysis`: re-run analysis from scratch (analysis is cheap)
    - `implementation`: if `session_id` exists, use `claude --resume <session_id>`; otherwise start fresh
+   - `pr-review`: if `session_id` exists, use `claude --resume <session_id>`; otherwise start fresh
    - `pr`: retry PR creation/push
 
 ### Job completion
 
-On successful PR creation:
+A job is considered successfully completed in two scenarios:
 
-1. Move `current-job.json` to `state/history/YYYYMMDD_I-{number}.json`
-2. Update issue labels: remove `prauto:wip`, add `prauto:done`
+**New issue → PR creation:**
+
+1. Push branch and create PR
+2. Move `current-job.json` to `state/history/YYYYMMDD_I-{number}.json`
+3. Update issue labels: remove `prauto:wip`, add `prauto:review`
+
+**PR comment response → follow-up commits:**
+
+1. Address reviewer feedback with additional commits on the PR branch
+2. Push new commits
+3. Reply to the reviewer comment confirming the changes are done
+4. Move `current-job.json` to `state/history/YYYYMMDD_I-{number}.json`
 
 ### Job abandonment
 
@@ -318,7 +360,7 @@ Prauto uses GitHub labels to track issue lifecycle. No GitHub bot account is req
     │
     ├── prauto claims → removes prauto:ready, adds prauto:wip
     │       │
-    │       ├── success → removes prauto:wip, adds prauto:done
+    │       ├── success → removes prauto:wip, adds prauto:review
     │       └── failure → removes prauto:wip, adds prauto:failed
     │
     └── (no prauto pickup yet → stays prauto:ready)
@@ -334,7 +376,7 @@ gh issue list \
   --json number,title,body,labels
 ```
 
-Filter results to exclude issues already labeled `prauto:wip` or `prauto:done`. Sort by issue number ascending (oldest first) and take the first match.
+Filter results to exclude issues already labeled `prauto:wip` or `prauto:review`. Sort by issue number ascending (oldest first) and take the first match.
 
 ### Claiming an issue
 
@@ -361,21 +403,28 @@ Prauto can work with minimal issue descriptions but produces better results with
 
 Prauto splits each job into two Claude Code sessions with different tool permissions:
 
-| Phase | Purpose | Tools | Budget | Max turns |
-|-------|---------|-------|--------|-----------|
-| Analysis | Read codebase, understand issue, produce plan | Read-only | $0.50 | 10 |
-| Implementation | Write code, run tests, commit | Read + Write + limited Bash | $2.00 | 50 |
+| Phase | Purpose | Tools | Max turns |
+|-------|---------|-------|-----------|
+| Analysis | Read codebase, understand issue, produce plan | Read-only | 10 |
+| Implementation | Write code, run tests, commit | Read + Write + limited Bash | 50 |
+
+`--max-turns` is the primary guard against runaway sessions. On Pro/Max subscription plans, this is the only effective limiter. `--max-budget-usd` can be added as an additional cap for API (pay-per-token) billing but has no effect on subscription plans.
 
 ### CLI invocation pattern
 
+The analysis and implementation phases use the same invocation structure with phase-specific variables:
+
 ```bash
+# Analysis phase: PHASE_MAX_TURNS=$PRAUTO_CLAUDE_MAX_TURNS_ANALYSIS, PHASE_BUDGET=$PRAUTO_CLAUDE_MAX_BUDGET_ANALYSIS
+# Implementation phase: PHASE_MAX_TURNS=$PRAUTO_CLAUDE_MAX_TURNS_IMPLEMENTATION, PHASE_BUDGET=$PRAUTO_CLAUDE_MAX_BUDGET_IMPLEMENTATION
+
 claude -p "<prompt>" \
   --append-system-prompt-file ".prauto/prompts/system-append.md" \
   --model "$PRAUTO_CLAUDE_MODEL" \
   --output-format json \
-  --max-turns <limit> \
-  --max-budget-usd <limit> \
-  --allowedTools <whitelist> \
+  --max-turns "$PHASE_MAX_TURNS" \
+  ${PHASE_BUDGET:+--max-budget-usd "$PHASE_BUDGET"} \
+  --allowedTools <phase whitelist> \
   --disallowedTools <denylist> \
   --dangerously-skip-permissions
 ```
@@ -402,10 +451,13 @@ Bash(ruff *)
 
 ### Tool denylist (both phases)
 
+The denylist is **defense-in-depth**: the whitelist already restricts Claude to only the listed tools, so unlisted tools like `curl` are blocked regardless. The denylist provides an explicit second layer that remains effective even if the whitelist is accidentally broadened.
+
 ```
 Bash(git push *), Bash(rm -rf *), Bash(sudo *),
 Bash(kubectl *), Bash(helm *),
 Bash(curl *), Bash(wget *),
+Read(.prauto/config.local.env), Read(.prauto/state/*),
 WebFetch, WebSearch
 ```
 
@@ -433,7 +485,7 @@ claude --resume "$SESSION_ID" \
   -p "Continue the implementation. Check what has been done so far and pick up where you left off." \
   --output-format json \
   --max-turns "$PRAUTO_CLAUDE_MAX_TURNS_IMPLEMENTATION" \
-  --max-budget-usd "$PRAUTO_CLAUDE_MAX_BUDGET_IMPLEMENTATION" \
+  ${PRAUTO_CLAUDE_MAX_BUDGET_IMPLEMENTATION:+--max-budget-usd "$PRAUTO_CLAUDE_MAX_BUDGET_IMPLEMENTATION"} \
   --allowedTools <implementation whitelist> \
   --disallowedTools <denylist> \
   --dangerously-skip-permissions
@@ -501,13 +553,20 @@ Generated by `prauto({worker_id})` using Claude Code CLI.
 
 ### PR review handling
 
-When prauto encounters an issue that already has an open PR (from a previous heartbeat):
+Heartbeat step 6 scans for open PRs on branches matching `prauto/I-*` owned by this worker:
 
-1. Read PR comments via `gh pr view --json comments`
-2. Include PR review comments in the Claude prompt as context
-3. If the PR is waiting for a human reviewer's response (no actionable feedback): exit, nothing to do
-4. If there are reviewer comments with change requests: apply them in the implementation phase
-5. Post a short reply comment after addressing feedback
+1. List open PRs via `gh pr list --author "$PRAUTO_GIT_AUTHOR_NAME" --json number,headRefName,comments,reviews`
+2. For each PR, check for unaddressed reviewer comments (change requests posted after the last prauto reply)
+3. If no PR has actionable feedback: continue to step 7 (find new issue)
+4. If a PR has actionable feedback (take the oldest PR first):
+   a. Create `current-job.json` with `"source": "pr-review"`, `"phase": "pr-review"`, the linked issue number, and the existing branch name
+   b. Check out the existing PR branch
+   c. Run the `pr-review` phase (same tool whitelist as implementation) with reviewer comments as context
+   d. Push additional commits to the PR branch
+   e. Reply to each addressed comment confirming the change
+   f. Complete the job (move to history) and **exit the heartbeat**
+
+The `pr-review` phase uses `PRAUTO_CLAUDE_MAX_TURNS_IMPLEMENTATION` and the implementation tool whitelist, since it performs the same kind of work (writing code, running tests, committing).
 
 ---
 
@@ -600,11 +659,12 @@ Implement changes for GitHub issue #{number} on branch `{branch}`.
 | Cluster access | No kubectl, helm | Disallowed tools |
 | Destructive ops | No rm -rf, sudo | Disallowed tools |
 | Git push | Only orchestrator pushes | Disallowed for Claude; `git-ops.sh` handles it |
-| Budget | Per-job dollar cap | `--max-budget-usd` |
-| Turn limit | Per-job turn cap | `--max-turns` |
+| Turn limit | Per-job turn cap (primary) | `--max-turns` |
+| Budget | Per-job dollar cap (API billing only) | `--max-budget-usd` (optional) |
 | Concurrency | One job at a time | PID-based lock file |
 | GitHub access | Fine-grained PAT | Scoped to issues, PRs, contents only |
-| Secrets | Gitignored local env | `config.local.env` never committed |
+| Secrets (git) | Gitignored local env | `config.local.env` never committed |
+| Secrets (runtime) | File moved off disk during Claude session | `heartbeat.sh` moves `config.local.env` out of repo tree before invocation |
 
 ### Why Claude cannot push
 
@@ -612,8 +672,24 @@ Separating "write code" from "push to remote" is a deliberate safety boundary. C
 
 ### Secrets isolation
 
-- `config.local.env` is gitignored and never read by Claude (Claude's tool whitelist does not include `Bash(cat .prauto/*)`)
-- `ANTHROPIC_API_KEY` is set in the shell environment by `heartbeat.sh` before invoking `claude`
+The `Read` tool (whitelisted in both phases) can access any file by path. To prevent Claude from reading secrets, `heartbeat.sh` performs a **pre-invocation lockdown**:
+
+1. Source `config.local.env` into shell variables
+2. Move `config.local.env` to a temporary location outside the repo tree (e.g., `/tmp/.prauto-secrets-$$`)
+3. Invoke Claude (secrets are not on disk during the session)
+4. Restore `config.local.env` after Claude exits
+
+Additionally, `.prauto/state/` is added to the denylist to prevent reading lock files or job history:
+
+```
+Read(.prauto/config.local.env), Read(.prauto/state/*)
+```
+
+These patterns are appended to the `--disallowedTools` list in both phases.
+
+**Other secret paths**:
+
+- `ANTHROPIC_API_KEY` is set in the shell environment by `heartbeat.sh` before invoking `claude`; the key is not passed as a CLI argument
 - `GH_TOKEN` is used only by `gh` CLI calls in the bash scripts, not passed to Claude
 
 ---
