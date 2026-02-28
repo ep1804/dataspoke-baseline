@@ -190,6 +190,10 @@ crontab trigger
     │       ├── if active job exists → resume from saved phase → exit
     │       └── if completed or no job → continue
     │
+    ├── 5.5 Squash-merge ready PRs ─ (lib/git-ops.sh)
+    │       ├── if approved + CLEAN PR found → rebase, squash, force-push, merge → exit
+    │       └── if none → continue
+    │
     ├── 6. Check open PRs ────────── (lib/git-ops.sh)
     │       ├── if PR has reviewer comments → checkout worktree, run pr-review, push, complete → exit
     │       └── if no actionable comments → continue
@@ -212,11 +216,11 @@ crontab trigger
     └── 14-15. Restore secrets + release lock  (EXIT trap: cleanup())
 ```
 
-**One job per heartbeat**: Steps 5 and 6 exit after completing their work. A single heartbeat never runs more than one Claude session to keep resource usage predictable and simplify state management.
+**One job per heartbeat**: Steps 5, 5.5, and 6 each exit after completing their work. A single heartbeat never runs more than one Claude session to keep resource usage predictable and simplify state management.
 
 **Worktree isolation**: Every Claude session (analysis, implementation, pr-review) runs inside a dedicated git worktree at `.prauto/worktrees/I-{N}` (new issue) or `.prauto/worktrees/{branch}` (PR review). The main repo directory is never the working directory during Claude invocations. The `cleanup()` EXIT trap removes the worktree unconditionally on exit.
 
-**Secrets handling**: `ANTHROPIC_API_KEY` and `GH_TOKEN` are exported only if non-empty; otherwise the respective CLIs fall back to their own system authentication. Secrets are secured before Claude runs by moving `config.local.env` to `/tmp/.prauto-secrets-$$` and restoring it in the EXIT trap.
+**Secrets handling**: `ANTHROPIC_API_KEY` and `GH_TOKEN` are exported only if non-empty; otherwise the respective CLIs fall back to their own system authentication. Secrets are secured before Claude runs by copying `config.local.env` to `/tmp/.prauto-secrets-$$` as a backup; the original stays in place but is protected by the `--disallowedTools` denylist entry `Read(.prauto/config.local.env)`. The EXIT trap removes the temp backup on exit.
 
 ### Bash conventions
 
@@ -607,6 +611,41 @@ Heartbeat step 6 scans for open PRs on branches matching the `prauto/` prefix:
 
 The `pr-review` phase uses `PRAUTO_CLAUDE_MAX_TURNS_IMPLEMENTATION` and the implementation tool whitelist, since it performs the same kind of work (writing code, running tests, committing).
 
+### Squash-merge action
+
+Heartbeat step 5.5 runs **before** the PR review check, so closing approved work takes priority over addressing feedback on unapproved work.
+
+**Trigger conditions** (all must be true):
+
+- Branch matches `PRAUTO_BRANCH_PREFIX` (`prauto/`)
+- `mergeable == "MERGEABLE"` — no merge conflicts
+- `mergeStateStatus == "CLEAN"` — all branch-protection rules satisfied (required reviews, required CI checks)
+- Latest review from the repo owner (derived as `${PRAUTO_GITHUB_REPO%%/*}`) has state `APPROVED`
+
+**Steps**:
+
+1. `find_mergeable_prs()` scans open prauto PRs sorted by number ascending, returning the oldest qualifying PR
+2. `checkout_branch_worktree` creates a worktree for the PR branch
+3. `squash_and_merge_pr()` executes:
+   a. Verify ≥ 1 commit authored by `PRAUTO_GIT_AUTHOR_EMAIL`
+   b. `git fetch origin <base_branch>`
+   c. `git rebase origin/<base_branch>` — if conflict, `git rebase --abort` and return 1
+   d. Find merge base; count commits between merge base and HEAD
+   e. Build commit message in a temp file (see format below)
+   f. If 1 commit: `git commit --amend --author=... --file=<msg>`; if N commits: `git reset --soft <merge_base>` then `git commit --author=... --file=<msg>`
+   g. `git push --force-with-lease origin <branch>` — aborts if remote changed unexpectedly
+   h. `gh pr merge <number> --merge --delete-branch` — warns on failure (CI checks may re-run after force push)
+
+**Commit message format**:
+
+```
+<pr_title>
+
+Closes #<issue_number>
+```
+
+All git write operations (rebase, commit, push) use explicit `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` env vars from `config.local.env` to ensure consistent authorship.
+
 ---
 
 ## Prompt Templates
@@ -799,7 +838,7 @@ The two-step check-then-add pattern is not fully atomic, but the verification wi
 | Concurrency | One job at a time | PID-based lock file |
 | GitHub access | Fine-grained PAT | Scoped to issues, PRs, contents only |
 | Secrets (git) | Gitignored local env | `config.local.env` never committed |
-| Secrets (runtime) | File moved off disk during Claude session | `heartbeat.sh` moves `config.local.env` out of repo tree before invocation |
+| Secrets (runtime) | Original protected by denylist; backup removed on exit | `heartbeat.sh` copies `config.local.env` to `/tmp`; denylist blocks `Read(.prauto/config.local.env)` |
 
 ### Why Claude cannot push
 
@@ -810,10 +849,10 @@ Separating "write code" from "push to remote" is a deliberate safety boundary. C
 The `Read` tool (whitelisted in both phases) can access any file by path. To prevent Claude from reading secrets, `heartbeat.sh` performs a **pre-invocation lockdown**:
 
 1. Source `config.local.env` into shell variables (so `ANTHROPIC_API_KEY`, `GH_TOKEN`, etc. are in the shell environment)
-2. Copy `config.local.env` to `/tmp/.prauto-secrets-$$`, then delete the original (`cp` + `rm`, equivalent to `mv`)
+2. Copy `config.local.env` to `/tmp/.prauto-secrets-$$` as a backup (original stays in place)
 3. Export `ANTHROPIC_API_KEY` and `GH_TOKEN` only if non-empty; otherwise unset them so CLIs use system auth
-4. Invoke Claude (the file is not on disk during the session)
-5. Restore: the EXIT trap (`cleanup()`) moves the temp file back to `config.local.env`
+4. Invoke Claude — the `--disallowedTools` denylist entry `Read(.prauto/config.local.env)` prevents Claude from reading the file even though it remains on disk
+5. Exit: the EXIT trap (`cleanup()`) removes the temp backup (`rm -f`)
 
 Additionally, `.prauto/state/` is added to the denylist to prevent reading lock files or job history:
 

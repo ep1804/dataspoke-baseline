@@ -212,6 +212,162 @@ find_actionable_prs() {
   return 1
 }
 
+# Find prauto-owned PRs that are approved by the repo owner and merge-ready.
+# Sets: MERGEABLE_PR_NUMBER, MERGEABLE_PR_BRANCH, MERGEABLE_PR_TITLE,
+#       MERGEABLE_PR_BODY, MERGEABLE_PR_ISSUE
+# Returns 0 if found, 1 if none.
+find_mergeable_prs() {
+  local repo_owner="${PRAUTO_GITHUB_REPO%%/*}"
+  local prs_json
+  prs_json=$(gh pr list -R "$PRAUTO_GITHUB_REPO" --state open \
+    --json number,headRefName,title,body --limit 50 2>/dev/null) || {
+    warn "Failed to list PRs for merge check."
+    return 1
+  }
+
+  local pr_numbers
+  pr_numbers=$(echo "$prs_json" | jq -r --arg prefix "$PRAUTO_BRANCH_PREFIX" '
+    [.[] | select(.headRefName | startswith($prefix))]
+    | sort_by(.number) | .[].number')
+  [[ -z "$pr_numbers" ]] && return 1
+
+  while IFS= read -r pr_number; do
+    [[ -z "$pr_number" ]] && continue
+    local pr_branch pr_title pr_body
+    pr_branch=$(echo "$prs_json" | jq -r --argjson n "$pr_number" '.[] | select(.number==$n) | .headRefName')
+    pr_title=$(echo "$prs_json"  | jq -r --argjson n "$pr_number" '.[] | select(.number==$n) | .title')
+    pr_body=$(echo "$prs_json"   | jq -r --argjson n "$pr_number" '.[] | select(.number==$n) | .body // ""')
+
+    local pr_detail
+    pr_detail=$(gh pr view "$pr_number" -R "$PRAUTO_GITHUB_REPO" \
+      --json mergeable,mergeStateStatus,reviews 2>/dev/null) || continue
+
+    local mergeable merge_state
+    mergeable=$(echo "$pr_detail"    | jq -r '.mergeable')
+    merge_state=$(echo "$pr_detail"  | jq -r '.mergeStateStatus')
+
+    local is_approved
+    is_approved=$(echo "$pr_detail" | jq -r --arg owner "$repo_owner" '
+      (.reviews // [])
+      | map(select(.author.login == $owner))
+      | sort_by(.submittedAt)
+      | last // {}
+      | .state == "APPROVED"')
+
+    if [[ "$is_approved" == "true" ]] && \
+       [[ "$mergeable" == "MERGEABLE" ]] && \
+       [[ "$merge_state" == "CLEAN" ]]; then
+      MERGEABLE_PR_NUMBER="$pr_number"
+      MERGEABLE_PR_BRANCH="$pr_branch"
+      MERGEABLE_PR_TITLE="$pr_title"
+      MERGEABLE_PR_BODY="$pr_body"
+      MERGEABLE_PR_ISSUE="${pr_branch#${PRAUTO_BRANCH_PREFIX}I-}"
+      info "Found merge-ready PR #${pr_number} approved by ${repo_owner}."
+      return 0
+    fi
+  done <<< "$pr_numbers"
+  return 1
+}
+
+# Squash all commits on the PR branch into one and merge via GitHub.
+# Must be called from inside the worktree (checkout_branch_worktree already ran).
+# Usage: squash_and_merge_pr <pr_number> <pr_branch> <pr_title> <pr_body> <issue_number>
+squash_and_merge_pr() {
+  local pr_number="$1"
+  local pr_branch="$2"
+  local pr_title="$3"
+  local pr_body="$4"
+  local issue_number="$5"
+
+  # Export git identity for ALL subprocesses (rebase, commit, amend).
+  # Exporting here (not per-command) ensures git's internal re-invocations also
+  # pick up the prauto identity rather than the system git config.
+  export GIT_AUTHOR_NAME="$PRAUTO_GIT_AUTHOR_NAME"
+  export GIT_AUTHOR_EMAIL="$PRAUTO_GIT_AUTHOR_EMAIL"
+  export GIT_COMMITTER_NAME="$PRAUTO_GIT_AUTHOR_NAME"
+  export GIT_COMMITTER_EMAIL="$PRAUTO_GIT_AUTHOR_EMAIL"
+
+  # Step 1: Verify at least one commit is authored by this worker
+  local authored_commits
+  authored_commits=$(git log "origin/${PRAUTO_BASE_BRANCH}..HEAD" \
+    --format="%ae" 2>/dev/null | grep -c "^${PRAUTO_GIT_AUTHOR_EMAIL}$" || true)
+  if [[ "$authored_commits" -eq 0 ]]; then
+    warn "PR #${pr_number}: no commits authored by ${PRAUTO_GIT_AUTHOR_EMAIL}. Skipping merge."
+    return 1
+  fi
+
+  # Step 2: Fetch base branch
+  git fetch origin "$PRAUTO_BASE_BRANCH" 2>/dev/null || {
+    warn "PR #${pr_number}: git fetch failed."
+    return 1
+  }
+
+  # Step 3: Rebase onto base branch
+  if ! git rebase "origin/${PRAUTO_BASE_BRANCH}" 2>/dev/null; then
+    warn "PR #${pr_number}: rebase onto origin/${PRAUTO_BASE_BRANCH} failed. Aborting."
+    git rebase --abort 2>/dev/null || true
+    return 1
+  fi
+
+  # Step 4: Find merge base
+  local merge_base
+  merge_base=$(git merge-base HEAD "origin/${PRAUTO_BASE_BRANCH}" 2>/dev/null) || {
+    warn "PR #${pr_number}: could not find merge base."
+    return 1
+  }
+
+  # Step 5: Count commits to squash
+  local commit_count
+  commit_count=$(git rev-list --count "${merge_base}..HEAD" 2>/dev/null || echo 0)
+
+  # Step 6: Build commit message
+  local msg_file
+  msg_file=$(mktemp /tmp/prauto-squash-msg-XXXXXX)
+  printf '%s\n\nCloses #%s\n' "$pr_title" "$issue_number" > "$msg_file"
+
+  local author_arg="${PRAUTO_GIT_AUTHOR_NAME} <${PRAUTO_GIT_AUTHOR_EMAIL}>"
+
+  # Step 7/8: Squash (amend if single commit, reset+commit if multiple)
+  if [[ "$commit_count" -eq 1 ]]; then
+    git commit --amend --author="$author_arg" --file="$msg_file" 2>/dev/null || {
+      warn "PR #${pr_number}: git commit --amend failed."
+      rm -f "$msg_file"
+      return 1
+    }
+  else
+    git reset --soft "$merge_base" 2>/dev/null || {
+      warn "PR #${pr_number}: git reset --soft failed."
+      rm -f "$msg_file"
+      return 1
+    }
+    git commit --author="$author_arg" --file="$msg_file" 2>/dev/null || {
+      warn "PR #${pr_number}: git commit (squash) failed."
+      rm -f "$msg_file"
+      return 1
+    }
+  fi
+  rm -f "$msg_file"
+
+  # Step 9: Force-push using GH_TOKEN explicitly so the push authenticates as the
+  # prauto account rather than the system credential helper (which may be ep1804).
+  local git_push_args=()
+  if [[ -n "${GH_TOKEN:-}" ]]; then
+    git_push_args+=("-c" "http.https://github.com/.extraHeader=Authorization: Bearer ${GH_TOKEN}")
+  fi
+  git "${git_push_args[@]}" push --force-with-lease origin "$pr_branch" 2>/dev/null || {
+    warn "PR #${pr_number}: force-push failed (remote may have changed). Skipping merge."
+    return 1
+  }
+  info "PR #${pr_number}: force-pushed squashed commit."
+
+  # Step 10: Merge via gh CLI (uses GH_TOKEN exported by heartbeat.sh)
+  if ! gh pr merge "$pr_number" -R "$PRAUTO_GITHUB_REPO" --merge --delete-branch 2>/dev/null; then
+    warn "PR #${pr_number}: gh pr merge failed (CI checks may need to re-run after force push)."
+  else
+    info "PR #${pr_number}: merged and branch deleted."
+  fi
+}
+
 # Reply to reviewer comments on a PR with idempotency.
 # Usage: reply_to_comments <pr_number> <comment_ids_csv>
 reply_to_comments() {

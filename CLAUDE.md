@@ -58,6 +58,14 @@ For end-to-end feature implementation, use subagents in this order:
 Each agent reads the spec and the output of previous agents as context.
 For spec authoring, use `/dataspoke-plan-write` or `/plan-doc` directly.
 
+## Testing prauto
+
+Due to Claude's nested-run limit, testing `.prauto/heartbeat.sh` from inside a Claude Code session requires unsetting the `CLAUDECODE` env var:
+
+```bash
+env -u CLAUDECODE bash -x .prauto/heartbeat.sh
+```
+
 ## Claude Code Configuration
 
 **Skills**: `kubectl`, `monitor-k8s`, `plan-doc`, `datahub-api`

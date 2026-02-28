@@ -24,10 +24,10 @@ cleanup() {
     git worktree prune 2>/dev/null || true
     info "Worktree ${WORKTREE_DIR} cleaned up."
   fi
-  # Restore secrets if they were moved out
+  # Clean up secrets backup (original stays in place, protected by --disallowedTools denylist)
   if [[ -n "$SECRETS_TEMP_FILE" ]] && [[ -f "$SECRETS_TEMP_FILE" ]]; then
-    mv "$SECRETS_TEMP_FILE" "$PRAUTO_DIR/config.local.env"
-    info "Restored config.local.env."
+    rm -f "$SECRETS_TEMP_FILE"
+    info "Secrets backup cleaned up."
   fi
   # Release lock
   if [[ -f "${PRAUTO_DIR}/state/heartbeat.lock" ]]; then
@@ -111,8 +111,7 @@ cd "$REPO_DIR"
 # ---------------------------------------------------------------------------
 SECRETS_TEMP_FILE="/tmp/.prauto-secrets-$$"
 cp "$PRAUTO_DIR/config.local.env" "$SECRETS_TEMP_FILE"
-rm -f "$PRAUTO_DIR/config.local.env"
-info "Secrets secured (moved out of repo tree)."
+info "Secrets backed up to ${SECRETS_TEMP_FILE}."
 
 # ---------------------------------------------------------------------------
 # Step 4: Check token quota
@@ -198,6 +197,23 @@ if has_active_job; then
   esac
 
   info "Resume complete. Exiting."
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Step 5.5: Squash-merge approved and merge-ready PRs
+# ---------------------------------------------------------------------------
+if find_mergeable_prs; then
+  info "Squash-merging approved PR #${MERGEABLE_PR_NUMBER} (${MERGEABLE_PR_BRANCH})..."
+  checkout_branch_worktree "$MERGEABLE_PR_BRANCH"
+  cd "$WORKTREE_DIR"
+  squash_and_merge_pr \
+    "$MERGEABLE_PR_NUMBER" \
+    "$MERGEABLE_PR_BRANCH" \
+    "$MERGEABLE_PR_TITLE" \
+    "$MERGEABLE_PR_BODY" \
+    "$MERGEABLE_PR_ISSUE"
+  info "Squash-merge complete. Exiting."
   exit 0
 fi
 
