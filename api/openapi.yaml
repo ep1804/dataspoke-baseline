@@ -1,8 +1,8 @@
-openapi: 3.0.3
+openapi: "3.0.3"
 
 info:
   title: DataSpoke API
-  version: 1.0.0
+  version: "0.1.0"
   description: |
     DataSpoke is a sidecar extension to DataHub that provides user-group-specific features
     for Data Engineers (DE), Data Analysts (DA), and Data Governance personnel (DG).
@@ -10,81 +10,117 @@ info:
     ## Three-Tier URI Structure
 
     ```
-    /api/v1/spoke/common/…     Cross-cutting features (DE, DA, DG)
-    /api/v1/spoke/de/…         Data Engineering features
-    /api/v1/spoke/da/…         Data Analysis features
-    /api/v1/spoke/dg/…         Data Governance features
-    /api/v1/hub/…              DataHub pass-through
+    /api/v1/spoke/common/…     Cross-cutting features shared by DE, DA, and DG
+    /api/v1/spoke/dg/…         Data Governance features (requires "dg" group claim)
+    /api/v1/hub/…              DataHub pass-through (any valid group)
     /health, /ready            System probes (no auth, no /api/v1 prefix)
     ```
 
+    The `/spoke/de/` and `/spoke/da/` tiers are reserved but have no routes currently defined.
+    All shared dataset operations (ingestion, validation, generation, search) live under
+    `/spoke/common/` so that any team that owns a dataset can access them regardless of
+    group membership.
+
     ## Access Control
 
-    JWT claims include a `groups` array (`de`, `da`, `dg`, `admin`). The middleware
-    enforces that the `groups` claim matches the URI tier. Users with `admin` bypass
-    all group-tier restrictions.
+    JWT Bearer tokens are required for all routes except `/health`, `/ready`, and `/auth/`.
+    The `groups` claim in the JWT payload is an array of user-group identifiers.
+    The middleware enforces that the claim matches the URI tier.
 
-    | Tier | Required group |
-    |------|---------------|
-    | `/spoke/common/…` | any valid group |
-    | `/spoke/de/…` | `de` |
-    | `/spoke/da/…` | `da` |
+    | URI tier | Required group |
+    |----------|----------------|
+    | `/spoke/common/…` | any valid group (`de`, `da`, or `dg`) |
     | `/spoke/dg/…` | `dg` |
     | `/hub/…` | any valid group |
     | `/auth/…`, `/health`, `/ready` | public |
+    | `/admin/…` | `admin` |
+
+    Users with `"admin"` in their `groups` claim bypass all group-tier restrictions.
 
     ## WebSocket Channels
 
-    The following WebSocket endpoints exist alongside the REST API (not described by this spec):
+    The following WebSocket endpoints exist alongside the REST API. They are not modelled
+    as OpenAPI paths because the OpenAPI 3.0 specification does not support WebSocket.
 
-    - `WS /api/v1/spoke/de/validator/{dataset_urn}/stream` — real-time validation progress
-    - `WS /api/v1/spoke/da/validator/{dataset_urn}/stream` — real-time validation progress
-    - `WS /api/v1/spoke/dg/metrics/stream` — real-time metrics updates
+    - `WS /api/v1/spoke/common/data/{dataset_urn}/stream/validation`
+      Real-time validation progress stream. After the upgrade the client must send
+      `{"type":"auth","token":"<access_token>"}` as the first message.
 
-    After the WS upgrade, the client must send `{"type":"auth","token":"<access_token>"}`.
-    The server replies `{"type":"auth_ok"}` and begins streaming progress/result messages.
+    - `WS /api/v1/spoke/dg/metric/stream`
+      Real-time metric update stream. Same auth handshake applies.
+
+    ## Pagination
+
+    Collection responses wrap the resource array under a named key and include pagination
+    metadata at the top level:
+
+    ```json
+    {
+      "datasets": [...],
+      "offset": 0,
+      "limit": 20,
+      "total_count": 143,
+      "resp_time": "2026-02-27T10:00:00.000Z"
+    }
+    ```
+
+    ## Standard Query Parameters
+
+    | Parameter | Purpose |
+    |-----------|---------|
+    | `offset` | Pagination start; default `0` |
+    | `limit` | Page size; default `20`, max `100` |
+    | `sort` | Field + direction suffix, e.g. `occurred_at_desc` |
+    | `from` | ISO 8601 start of time-range filter (inclusive) |
+    | `to` | ISO 8601 end of time-range filter (inclusive) |
+    | `q` | Natural language query (search endpoints only) |
 
 servers:
-  - url: http://localhost:8000
+  - url: http://localhost:8000/api/v1
     description: Local development
-  - url: https://api.dataspoke.example.com
+  - url: https://dataspoke.example.com/api/v1
     description: Production
 
-security:
-  - BearerAuth: []
-
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
 tags:
-  - name: auth
-    description: Token issuance and revocation
-  - name: common
-    description: Cross-cutting features shared across DE, DA, and DG
-  - name: de
-    description: Data Engineering features
-  - name: da
-    description: Data Analysis features
-  - name: dg
-    description: Data Governance features
-  - name: hub
-    description: DataHub pass-through
   - name: system
-    description: Liveness and readiness probes
+    description: Liveness and readiness probes. No authentication required.
+  - name: auth
+    description: Token issuance, refresh, and revocation.
+  - name: common
+    description: |
+      Cross-cutting features available to all user groups: ontology, data resource,
+      ingestion, validation, generation, and search.
+  - name: dg
+    description: Data Governance features — metrics dashboard and multi-perspective overview.
+  - name: hub
+    description: DataHub GMS pass-through.
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 paths:
 
-  # ── System ────────────────────────────────────────────────────────────────
+  # ==========================================================================
+  # System
+  # ==========================================================================
 
   /health:
     get:
-      tags: [system]
-      operationId: health_check
+      operationId: getHealth
       summary: Liveness check
-      security: []
+      description: Returns 200 when the process is running. No authentication required.
+      tags: [system]
+      servers:
+        - url: http://localhost:8000
+          description: Local development (no /api/v1 prefix)
+        - url: https://dataspoke.example.com
+          description: Production (no /api/v1 prefix)
       responses:
         "200":
-          description: Service is alive
+          description: Process is alive
           content:
             application/json:
               schema:
@@ -92,145 +128,161 @@ paths:
 
   /ready:
     get:
-      tags: [system]
-      operationId: readiness_check
+      operationId: getReady
       summary: Readiness check
-      description: Verifies connectivity to DataHub, PostgreSQL, and Redis.
-      security: []
+      description: |
+        Returns 200 when the service can handle traffic — i.e., DataHub GMS, PostgreSQL,
+        and Redis are all reachable. No authentication required.
+      tags: [system]
+      servers:
+        - url: http://localhost:8000
+          description: Local development (no /api/v1 prefix)
+        - url: https://dataspoke.example.com
+          description: Production (no /api/v1 prefix)
       responses:
         "200":
-          description: All dependencies reachable
+          description: Service is ready
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReadyResponse"
         "503":
-          description: One or more dependencies unreachable
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/ServiceUnavailable"
 
-  # ── Auth ──────────────────────────────────────────────────────────────────
+  # ==========================================================================
+  # Auth
+  # ==========================================================================
 
-  /api/v1/auth/token:
+  /auth/token:
     post:
+      operationId: issueToken
+      summary: Issue access and refresh tokens
+      description: |
+        Exchange email + password credentials for a short-lived access token (15 min)
+        and a long-lived refresh token (7 days). The refresh token is returned as an
+        HttpOnly cookie.
       tags: [auth]
-      operationId: auth_token
-      summary: Issue access + refresh tokens
-      security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/AuthTokenRequest"
+              $ref: "#/components/schemas/TokenRequest"
       responses:
         "200":
-          description: Tokens issued; refresh token set as HttpOnly cookie
+          description: Tokens issued
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthTokenResponse"
+                $ref: "#/components/schemas/TokenResponse"
+          headers:
+            Set-Cookie:
+              description: HttpOnly cookie containing the refresh token
+              schema:
+                type: string
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
-  /api/v1/auth/token/refresh:
+  /auth/token/refresh:
     post:
-      tags: [auth]
-      operationId: auth_token_refresh
+      operationId: refreshToken
       summary: Refresh access token
-      description: Reads the refresh token from the HttpOnly cookie set at login.
-      security: []
+      description: |
+        Issue a new access token using the refresh token sent as an HttpOnly cookie.
+      tags: [auth]
       responses:
         "200":
           description: New access token issued
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthTokenResponse"
+                $ref: "#/components/schemas/TokenResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
-  /api/v1/auth/token/revoke:
+  /auth/token/revoke:
     post:
-      tags: [auth]
-      operationId: auth_token_revoke
+      operationId: revokeToken
       summary: Revoke refresh token (logout)
-      security: []
+      description: |
+        Invalidate the refresh token. The client should discard the access token from memory.
+      tags: [auth]
       responses:
-        "200":
+        "204":
           description: Refresh token revoked
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  resp_time:
-                    $ref: "#/components/schemas/Timestamp"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
-  # ── Common: Ontology ──────────────────────────────────────────────────────
+  # ==========================================================================
+  # Common — Ontology
+  # ==========================================================================
 
-  /api/v1/spoke/common/ontology:
+  /spoke/common/ontology:
     get:
-      tags: [common]
-      operationId: list_ontology_concepts
+      operationId: listOntologyConcepts
       summary: List concept categories
+      tags: [common]
+      security:
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/Offset"
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort"
       responses:
         "200":
-          description: Concept list
+          description: Paginated list of ontology concepts
           content:
             application/json:
               schema:
-                allOf:
-                  - type: object
-                    properties:
-                      concepts:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/OntologyConcept"
-                  - $ref: "#/components/schemas/PaginationMeta"
+                $ref: "#/components/schemas/OntologyConceptList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/common/ontology/{concept_id}:
+  /spoke/common/ontology/{concept_id}:
     parameters:
-      - $ref: "#/components/parameters/ConceptId"
+      - $ref: "#/components/parameters/concept_id"
     get:
+      operationId: getOntologyConcept
+      summary: Get concept detail and relationships
       tags: [common]
-      operationId: get_ontology_concept
-      summary: Get concept detail + relationships
+      security:
+        - BearerAuth: []
       responses:
         "200":
-          description: Concept detail
+          description: Concept detail with relationships
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/OntologyConceptDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/common/ontology/{concept_id}/attr:
+  /spoke/common/ontology/{concept_id}/attr:
     parameters:
-      - $ref: "#/components/parameters/ConceptId"
+      - $ref: "#/components/parameters/concept_id"
     get:
+      operationId: getOntologyConceptAttr
+      summary: Get concept attributes
+      description: Returns attribute fields such as confidence score and parent concept.
       tags: [common]
-      operationId: get_ontology_concept_attr
-      summary: Get concept attributes (confidence, parent)
+      security:
+        - BearerAuth: []
       responses:
         "200":
           description: Concept attributes
@@ -238,113 +290,146 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OntologyConceptAttr"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/common/ontology/{concept_id}/event:
+  /spoke/common/ontology/{concept_id}/event:
     parameters:
-      - $ref: "#/components/parameters/ConceptId"
+      - $ref: "#/components/parameters/concept_id"
     get:
+      operationId: listOntologyConceptEvents
+      summary: Get change history for a concept
+      description: |
+        Returns the immutable event log for this concept, ordered newest first by default.
+        Supports `from`/`to` for time-range filtering.
       tags: [common]
-      operationId: list_ontology_concept_events
-      summary: Change history for a concept
+      security:
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/Offset"
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
       responses:
         "200":
-          description: Change history
+          description: Paginated event log
           content:
             application/json:
               schema:
-                allOf:
-                  - type: object
-                    properties:
-                      events:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/OntologyConceptEvent"
-                  - $ref: "#/components/schemas/PaginationMeta"
+                $ref: "#/components/schemas/EventList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/common/ontology/{concept_id}/method/approve:
+  /spoke/common/ontology/{concept_id}/method/approve:
     parameters:
-      - $ref: "#/components/parameters/ConceptId"
+      - $ref: "#/components/parameters/concept_id"
     post:
-      tags: [common]
-      operationId: approve_ontology_concept
+      operationId: approveOntologyConcept
       summary: Approve a pending concept proposal
+      tags: [common]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConceptApproveRequest"
       responses:
         "200":
           description: Concept approved
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OntologyConceptDetail"
+                $ref: "#/components/schemas/MethodResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/common/ontology/{concept_id}/method/reject:
+  /spoke/common/ontology/{concept_id}/method/reject:
     parameters:
-      - $ref: "#/components/parameters/ConceptId"
+      - $ref: "#/components/parameters/concept_id"
     post:
-      tags: [common]
-      operationId: reject_ontology_concept
+      operationId: rejectOntologyConcept
       summary: Reject a pending concept proposal
+      tags: [common]
+      security:
+        - BearerAuth: []
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                reason:
-                  type: string
-                  example: "Duplicate of existing concept 'revenue'."
+              $ref: "#/components/schemas/ConceptRejectRequest"
       responses:
         "200":
           description: Concept rejected
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OntologyConceptDetail"
+                $ref: "#/components/schemas/MethodResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  # ── Common: Quality ───────────────────────────────────────────────────────
+  # ==========================================================================
+  # Common — Data Resource
+  # ==========================================================================
 
-  /api/v1/spoke/common/quality/{dataset_urn}:
+  /spoke/common/data/{dataset_urn}:
     parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
+      - $ref: "#/components/parameters/dataset_urn"
     get:
+      operationId: getDataset
+      summary: Get dataset summary
+      description: Returns identity, owner, and tags for the dataset.
       tags: [common]
-      operationId: get_quality_score
-      summary: Get quality score for a dataset
+      security:
+        - BearerAuth: []
       responses:
         "200":
-          description: Quality score
+          description: Dataset summary
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/QualityScore"
+                $ref: "#/components/schemas/DatasetSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -353,135 +438,163 @@ paths:
           $ref: "#/components/responses/NotFound"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/common/quality/{dataset_urn}/event:
+  /spoke/common/data/{dataset_urn}/attr:
     parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
+      - $ref: "#/components/parameters/dataset_urn"
     get:
+      operationId: getDatasetAttr
+      summary: Get dataset attributes
+      description: Returns schema summary, ownership, and tags.
       tags: [common]
-      operationId: list_quality_score_events
-      summary: Quality score history (time-series)
-      parameters:
-        - $ref: "#/components/parameters/Offset"
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Sort"
+      security:
+        - BearerAuth: []
       responses:
         "200":
-          description: Quality score history
+          description: Dataset attributes
           content:
             application/json:
               schema:
-                allOf:
-                  - type: object
-                    properties:
-                      events:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/QualityScoreEvent"
-                  - $ref: "#/components/schemas/PaginationMeta"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  # ── DE: Ingestion ─────────────────────────────────────────────────────────
-
-  /api/v1/spoke/de/ingestion:
-    get:
-      tags: [de]
-      operationId: list_ingestion_configs
-      summary: List ingestion configs
-      description: Requires group claim `de`.
-      parameters:
-        - $ref: "#/components/parameters/Offset"
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Sort"
-      responses:
-        "200":
-          description: Ingestion config list
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - type: object
-                    properties:
-                      ingestion_configs:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/IngestionConfig"
-                  - $ref: "#/components/schemas/PaginationMeta"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-    post:
-      tags: [de]
-      operationId: create_ingestion_config
-      summary: Create ingestion config
-      description: Requires group claim `de`.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/IngestionConfigCreate"
-      responses:
-        "201":
-          description: Ingestion config created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IngestionConfig"
+                $ref: "#/components/schemas/DatasetAttr"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/data/{dataset_urn}/event:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: listDatasetEvents
+      summary: Get dataset-level event history
+      description: |
+        Returns all event types (ingestion, validation, generation) for this dataset,
+        ordered newest first by default. Supports `from`/`to` for time-range filtering.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+      responses:
+        "200":
+          description: Paginated event log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # --------------------------------------------------------------------------
+  # Data Resource — Ingestion
+  # --------------------------------------------------------------------------
+
+  /spoke/common/data/{dataset_urn}/attr/ingestion/conf:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: getDatasetIngestionConf
+      summary: Get ingestion configuration for dataset
+      tags: [common]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Ingestion configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionConf"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      operationId: putDatasetIngestionConf
+      summary: Create or replace ingestion configuration
+      tags: [common]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestionConfWrite"
+      responses:
+        "200":
+          description: Ingestion configuration replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionConf"
+        "201":
+          description: Ingestion configuration created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionConf"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
-
-  /api/v1/spoke/de/ingestion/{config_id}:
-    parameters:
-      - $ref: "#/components/parameters/ConfigId"
-    get:
-      tags: [de]
-      operationId: get_ingestion_config
-      summary: Get ingestion config detail
-      description: Requires group claim `de`.
-      responses:
-        "200":
-          description: Ingestion config detail
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IngestionConfig"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-    put:
-      tags: [de]
-      operationId: update_ingestion_config
-      summary: Update ingestion config
-      description: Requires group claim `de`.
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    patch:
+      operationId: patchDatasetIngestionConf
+      summary: Partially update ingestion configuration
+      tags: [common]
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/IngestionConfigUpdate"
+              $ref: "#/components/schemas/IngestionConfPatch"
       responses:
         "200":
-          description: Updated ingestion config
+          description: Ingestion configuration updated
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/IngestionConfig"
+                $ref: "#/components/schemas/IngestionConf"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -490,336 +603,1322 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
     delete:
-      tags: [de]
-      operationId: delete_ingestion_config
-      summary: Delete ingestion config
-      description: Requires group claim `de`.
+      operationId: deleteDatasetIngestionConf
+      summary: Remove ingestion configuration
+      tags: [common]
+      security:
+        - BearerAuth: []
       responses:
         "204":
-          description: Deleted
+          description: Ingestion configuration deleted
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/de/ingestion/{config_id}/event:
+  /spoke/common/data/{dataset_urn}/attr/ingestion/method/run:
     parameters:
-      - $ref: "#/components/parameters/ConfigId"
-    get:
-      tags: [de]
-      operationId: list_ingestion_run_events
-      summary: Ingestion run history
-      description: Requires group claim `de`.
-      parameters:
-        - $ref: "#/components/parameters/Offset"
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Sort"
-      responses:
-        "200":
-          description: Ingestion run history
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - type: object
-                    properties:
-                      events:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/IngestionRunEvent"
-                  - $ref: "#/components/schemas/PaginationMeta"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /api/v1/spoke/de/ingestion/{config_id}/method/run:
-    parameters:
-      - $ref: "#/components/parameters/ConfigId"
+      - $ref: "#/components/parameters/dataset_urn"
     post:
-      tags: [de]
-      operationId: run_ingestion
+      operationId: runDatasetIngestion
       summary: Trigger ingestion run
-      description: Requires group claim `de`. Returns 409 if a run is already in progress.
-      responses:
-        "200":
-          description: Run triggered
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IngestionRunEvent"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-
-  /api/v1/spoke/de/ingestion/{config_id}/method/dry-run:
-    parameters:
-      - $ref: "#/components/parameters/ConfigId"
-    post:
-      tags: [de]
-      operationId: dry_run_ingestion
-      summary: Dry-run ingestion (no write)
-      description: Requires group claim `de`. Validates the config without persisting any data.
-      responses:
-        "200":
-          description: Dry-run result
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/IngestionRunEvent"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  # ── DE: Validator ─────────────────────────────────────────────────────────
-
-  /api/v1/spoke/de/validator/{dataset_urn}:
-    parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
-    get:
-      tags: [de]
-      operationId: de_get_validation_result
-      summary: Get validation result for dataset
-      description: Requires group claim `de`.
-      responses:
-        "200":
-          description: Validation result
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ValidationResult"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /api/v1/spoke/de/validator/{dataset_urn}/method/validate:
-    parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
-    post:
-      tags: [de]
-      operationId: de_run_validation
-      summary: Run validation (writes result)
-      description: Requires group claim `de`. Returns 409 if a validation is already running.
-      responses:
-        "200":
-          description: Validation triggered
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ValidationResult"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-
-  /api/v1/spoke/de/validator/{dataset_urn}/method/dry-validate:
-    parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
-    post:
-      tags: [de]
-      operationId: de_dry_validate
-      summary: Dry-run validation (no write)
-      description: Requires group claim `de`. Computes the result without persisting it.
-      responses:
-        "200":
-          description: Dry-run validation result
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ValidationResult"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /api/v1/spoke/de/validator/{dataset_urn}/event:
-    parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
-    get:
-      tags: [de]
-      operationId: de_list_validation_events
-      summary: Validation run history
-      description: Requires group claim `de`.
+      description: |
+        Enqueues an ingestion run via Temporal. Use `?dry_run=true` for no-write mode.
+      tags: [common]
+      security:
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/Offset"
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Sort"
+        - name: config_id
+          in: query
+          description: ID of the ingestion configuration to use
+          schema:
+            type: string
+        - name: dry_run
+          in: query
+          description: If true, perform a dry run without writing to DataHub
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
-          description: Validation run history
+          description: Ingestion run triggered
           content:
             application/json:
               schema:
-                allOf:
-                  - type: object
-                    properties:
-                      events:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/ValidationRunEvent"
-                  - $ref: "#/components/schemas/PaginationMeta"
+                $ref: "#/components/schemas/RunTriggered"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  # ── DE: Docs ──────────────────────────────────────────────────────────────
-
-  /api/v1/spoke/de/docs/{dataset_urn}:
+  /spoke/common/data/{dataset_urn}/attr/ingestion/event:
     parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
+      - $ref: "#/components/parameters/dataset_urn"
     get:
-      tags: [de]
-      operationId: get_doc_suggestion
-      summary: Get doc suggestion state
-      description: Requires group claim `de`.
+      operationId: listDatasetIngestionEvents
+      summary: Get ingestion event reports
+      description: |
+        Returns success and failure notices for ingestion runs on this dataset,
+        ordered newest first by default.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
       responses:
         "200":
-          description: Doc suggestion state
+          description: Paginated ingestion event log
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DocSuggestion"
+                $ref: "#/components/schemas/EventList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/de/docs/{dataset_urn}/attr:
+  # --------------------------------------------------------------------------
+  # Data Resource — Validation
+  # --------------------------------------------------------------------------
+
+  /spoke/common/data/{dataset_urn}/attr/validation/conf:
     parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
+      - $ref: "#/components/parameters/dataset_urn"
     get:
-      tags: [de]
-      operationId: get_doc_suggestion_attr
-      summary: Get suggestion metadata (confidence, source)
-      description: Requires group claim `de`.
+      operationId: getDatasetValidationConf
+      summary: Get validation configuration for dataset
+      tags: [common]
+      security:
+        - BearerAuth: []
       responses:
         "200":
-          description: Suggestion metadata
+          description: Validation configuration
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DocSuggestionAttr"
+                $ref: "#/components/schemas/ValidationConf"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      operationId: putDatasetValidationConf
+      summary: Create or replace validation configuration
+      tags: [common]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidationConfWrite"
+      responses:
+        "200":
+          description: Validation configuration replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationConf"
+        "201":
+          description: Validation configuration created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationConf"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    patch:
+      operationId: patchDatasetValidationConf
+      summary: Partially update validation configuration
+      tags: [common]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidationConfPatch"
+      responses:
+        "200":
+          description: Validation configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationConf"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: deleteDatasetValidationConf
+      summary: Remove validation configuration
+      tags: [common]
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Validation configuration deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/de/docs/{dataset_urn}/method/generate:
+  /spoke/common/data/{dataset_urn}/attr/validation/result:
     parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
-    post:
-      tags: [de]
-      operationId: generate_doc_suggestions
-      summary: Trigger doc suggestion generation
-      description: Requires group claim `de`.
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: getDatasetValidationResult
+      summary: Get validation results for dataset
+      description: |
+        Returns validation results as a timeseries. Use `?from=…&to=…` to narrow the
+        time range (ISO 8601).
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
       responses:
         "200":
-          description: Generation triggered
+          description: Paginated validation results
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DocSuggestion"
+                $ref: "#/components/schemas/ValidationResultList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/de/docs/{dataset_urn}/method/apply:
+  /spoke/common/data/{dataset_urn}/attr/validation/method/run:
     parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
+      - $ref: "#/components/parameters/dataset_urn"
     post:
-      tags: [de]
-      operationId: apply_doc_suggestions
-      summary: Apply approved suggestions to DataHub
-      description: Requires group claim `de`. Pushes approved doc suggestions via DataHub SDK.
+      operationId: runDatasetValidation
+      summary: Trigger validation run
+      description: |
+        Enqueues a validation run via Temporal. Use `?dry_run=true` for no-write mode.
+        Real-time progress is available via the WebSocket stream.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: config_id
+          in: query
+          description: ID of the validation configuration to use
+          schema:
+            type: string
+        - name: dry_run
+          in: query
+          description: If true, compute results without persisting them
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
-          description: Suggestions applied
+          description: Validation run triggered
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DocSuggestion"
+                $ref: "#/components/schemas/RunTriggered"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/data/{dataset_urn}/attr/validation/event:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: listDatasetValidationEvents
+      summary: Get validation event reports
+      description: Returns success and failure notices for validation runs on this dataset.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+      responses:
+        "200":
+          description: Paginated validation event log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # --------------------------------------------------------------------------
+  # Data Resource — Generation
+  # --------------------------------------------------------------------------
+
+  /spoke/common/data/{dataset_urn}/attr/gen/conf:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: getDatasetGenConf
+      summary: Get generation configuration for dataset
+      description: Returns target fields, period, and active status.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Generation configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenConf"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      operationId: putDatasetGenConf
+      summary: Create or replace generation configuration
+      tags: [common]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenConfWrite"
+      responses:
+        "200":
+          description: Generation configuration replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenConf"
+        "201":
+          description: Generation configuration created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenConf"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    patch:
+      operationId: patchDatasetGenConf
+      summary: Partially update generation configuration
+      tags: [common]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenConfPatch"
+      responses:
+        "200":
+          description: Generation configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenConf"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: deleteDatasetGenConf
+      summary: Remove generation configuration
+      tags: [common]
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Generation configuration deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/data/{dataset_urn}/attr/gen/result:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: getDatasetGenResult
+      summary: Get generation results for dataset
+      description: |
+        Returns historical generation results. Use `?latest=true` to return only the
+        most recent result. Use `?from=…&to=…` for a time range.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: latest
+          in: query
+          description: If true, return only the most recent result
+          schema:
+            type: boolean
+            default: false
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+      responses:
+        "200":
+          description: Paginated generation results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenResultList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/data/{dataset_urn}/attr/gen/method/generate:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    post:
+      operationId: runDatasetGenerate
+      summary: Trigger metadata generation run
+      description: Enqueues an LLM-powered metadata generation job via Temporal.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Generation run triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunTriggered"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/data/{dataset_urn}/attr/gen/method/apply:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    post:
+      operationId: applyDatasetGenResult
+      summary: Apply approved generation results to DataHub
+      description: |
+        Writes approved LLM-generated metadata back to DataHub GMS aspects.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenApplyRequest"
+      responses:
+        "200":
+          description: Generation results applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MethodResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/de/docs/{dataset_urn}/event:
+  /spoke/common/data/{dataset_urn}/attr/gen/event:
     parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
+      - $ref: "#/components/parameters/dataset_urn"
     get:
-      tags: [de]
-      operationId: list_doc_suggestion_events
-      summary: Doc suggestion history
-      description: Requires group claim `de`.
+      operationId: listDatasetGenEvents
+      summary: Get generation event reports
+      description: Returns success and failure notices for generation runs on this dataset.
+      tags: [common]
+      security:
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/Offset"
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
       responses:
         "200":
-          description: Doc suggestion history
+          description: Paginated generation event log
           content:
             application/json:
               schema:
-                allOf:
-                  - type: object
-                    properties:
-                      events:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/DocSuggestionEvent"
-                  - $ref: "#/components/schemas/PaginationMeta"
+                $ref: "#/components/schemas/EventList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  # ── Common: Search ────────────────────────────────────────────────────────
+  # ==========================================================================
+  # Common — Cross-dataset Ingestion
+  # ==========================================================================
 
-  /api/v1/spoke/common/search:
+  /spoke/common/ingestion:
     get:
+      operationId: listIngestionConfigs
+      summary: List all ingestion configurations across datasets
+      description: |
+        Cross-dataset view of ingestion configurations. Each entry combines dataset
+        identity with the ingestion config stored under
+        `spoke/common/data/{dataset_urn}/attr/ingestion/`.
       tags: [common]
-      operationId: natural_language_search
-      summary: Natural language search
-      description: Requires any valid group claim (`de`, `da`, `dg`).
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort"
+        - name: status
+          in: query
+          description: Filter by ingestion config status
+          schema:
+            type: string
+            enum: [active, inactive, error]
+      responses:
+        "200":
+          description: Paginated list of ingestion configurations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionConfList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/ingestion/{dataset_urn}:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: getIngestionConfig
+      summary: Get ingestion configuration detail
+      description: Returns dataset identity plus the full ingestion configuration body.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Ingestion configuration detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionConf"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/ingestion/{dataset_urn}/attr:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: getIngestionConfigAttr
+      summary: Get ingestion configuration attributes
+      description: Returns schedule, deep_spec_enabled flag, status, and owner.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Ingestion configuration attributes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionConfAttr"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    patch:
+      operationId: patchIngestionConfigAttr
+      summary: Update ingestion configuration attributes
+      tags: [common]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestionConfAttrPatch"
+      responses:
+        "200":
+          description: Ingestion configuration attributes updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionConfAttr"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/ingestion/{dataset_urn}/method/run:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    post:
+      operationId: runIngestion
+      summary: Trigger ingestion run
+      description: Use `?dry_run=true` for no-write mode.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: dry_run
+          in: query
+          description: If true, perform a dry run without writing to DataHub
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Ingestion run triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunTriggered"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/ingestion/{dataset_urn}/event:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: listIngestionEvents
+      summary: Get ingestion event reports
+      description: Returns success and failure notices for ingestion runs on this dataset.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+      responses:
+        "200":
+          description: Paginated ingestion event log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ==========================================================================
+  # Common — Cross-dataset Validation
+  # ==========================================================================
+
+  /spoke/common/validation:
+    get:
+      operationId: listValidationConfigs
+      summary: List all validation configurations across datasets
+      description: |
+        Cross-dataset view of validation configurations. Each entry combines dataset
+        identity with the validation config stored under
+        `spoke/common/data/{dataset_urn}/attr/validation/`.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort"
+        - name: status
+          in: query
+          description: Filter by validation config status
+          schema:
+            type: string
+            enum: [active, inactive, error]
+      responses:
+        "200":
+          description: Paginated list of validation configurations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationConfList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/validation/{dataset_urn}:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: getValidationConfig
+      summary: Get validation configuration detail
+      description: Returns dataset identity plus the full validation configuration body.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Validation configuration detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationConf"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/validation/{dataset_urn}/attr:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: getValidationConfigAttr
+      summary: Get validation configuration attributes
+      description: Returns rules, result spec, schedule, status, and owner.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Validation configuration attributes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationConfAttr"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    patch:
+      operationId: patchValidationConfigAttr
+      summary: Update validation configuration attributes
+      tags: [common]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidationConfAttrPatch"
+      responses:
+        "200":
+          description: Validation configuration attributes updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationConfAttr"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/validation/{dataset_urn}/attr/result:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: getValidationResult
+      summary: Get validation results for dataset
+      description: Returns validation results as a timeseries. Use `?from=…&to=…` to narrow the time range.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+      responses:
+        "200":
+          description: Paginated validation results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResultList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/validation/{dataset_urn}/method/run:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    post:
+      operationId: runValidation
+      summary: Trigger validation run
+      description: Use `?dry_run=true` for no-write mode.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: dry_run
+          in: query
+          description: If true, compute results without persisting them
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Validation run triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunTriggered"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/validation/{dataset_urn}/event:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: listValidationEvents
+      summary: Get validation event reports
+      description: Returns success and failure notices for validation runs on this dataset.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+      responses:
+        "200":
+          description: Paginated validation event log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ==========================================================================
+  # Common — Cross-dataset Generation
+  # ==========================================================================
+
+  /spoke/common/gen:
+    get:
+      operationId: listGenConfigs
+      summary: List all generation configurations across datasets
+      description: |
+        Cross-dataset view of generation configurations. Each entry combines dataset
+        identity with the generation config stored under
+        `spoke/common/data/{dataset_urn}/attr/gen/`.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort"
+        - name: status
+          in: query
+          description: Filter by generation config status
+          schema:
+            type: string
+            enum: [active, inactive, error]
+      responses:
+        "200":
+          description: Paginated list of generation configurations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenConfList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/gen/{dataset_urn}:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: getGenConfig
+      summary: Get generation configuration detail
+      description: Returns dataset identity plus configuration and the latest result.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Generation configuration detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenConf"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/gen/{dataset_urn}/attr:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: getGenConfigAttr
+      summary: Get generation configuration attributes
+      description: Returns target fields, period, status, and owner.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Generation configuration attributes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenConfAttr"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    patch:
+      operationId: patchGenConfigAttr
+      summary: Update generation configuration attributes
+      tags: [common]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenConfAttrPatch"
+      responses:
+        "200":
+          description: Generation configuration attributes updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenConfAttr"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/gen/{dataset_urn}/attr/result:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: getGenResult
+      summary: Get generation results for dataset
+      description: Returns historical generation results. Use `?from=…&to=…` to narrow the time range.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+      responses:
+        "200":
+          description: Paginated generation results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenResultList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/gen/{dataset_urn}/method/generate:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    post:
+      operationId: runGenerate
+      summary: Trigger generation run
+      description: Enqueues an LLM-powered metadata generation job via Temporal.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Generation run triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunTriggered"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/gen/{dataset_urn}/method/apply:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    post:
+      operationId: applyGenResult
+      summary: Apply approved generation results to DataHub
+      description: Writes approved LLM-generated metadata back to DataHub GMS aspects.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenApplyRequest"
+      responses:
+        "200":
+          description: Generation results applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MethodResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/common/gen/{dataset_urn}/event:
+    parameters:
+      - $ref: "#/components/parameters/dataset_urn"
+    get:
+      operationId: listGenEvents
+      summary: Get generation event reports
+      description: Returns success and failure notices for generation runs on this dataset.
+      tags: [common]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+      responses:
+        "200":
+          description: Paginated generation event log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ==========================================================================
+  # Common — Search
+  # ==========================================================================
+
+  /spoke/common/search:
+    get:
+      operationId: search
+      summary: Natural language search over dataset metadata
+      description: |
+        Vector similarity search over dataset metadata. Add `?sql_context=true` to include
+        text-to-SQL optimized column detail, sample values, and inferred join paths in the
+        response — this supersedes the former dedicated text-to-SQL and join-paths paths.
+      tags: [common]
+      security:
+        - BearerAuth: []
       parameters:
         - name: q
           in: query
@@ -827,150 +1926,222 @@ paths:
           description: Natural language search query
           schema:
             type: string
-            example: "orders table with freshness issues"
-        - $ref: "#/components/parameters/Offset"
-        - $ref: "#/components/parameters/Limit"
+        - name: sql_context
+          in: query
+          description: If true, include text-to-SQL context (column profiles, join paths, sample queries)
+          schema:
+            type: boolean
+            default: false
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
       responses:
         "200":
-          description: Search results
+          description: Ranked search results
           content:
             application/json:
               schema:
-                allOf:
-                  - type: object
-                    properties:
-                      results:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/SearchResult"
-                  - $ref: "#/components/schemas/PaginationMeta"
+                $ref: "#/components/schemas/SearchResultList"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/common/search/{dataset_urn}:
-    parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
-    get:
-      tags: [common]
-      operationId: get_search_indexed_metadata
-      summary: Get search-indexed metadata for dataset
+  /spoke/common/search/method/reindex:
+    post:
+      operationId: reindexSearch
+      summary: Trigger reindex for a dataset
       description: |
-        Requires any valid group claim. Pass `?sql_context=true` to include
-        text-to-SQL optimized column detail, sample values, and inferred join paths
-        in the response.
+        Regenerates the vector embedding for the specified dataset and upserts it into
+        Qdrant. Use `?dataset_urn=…` to target a single dataset.
+      tags: [common]
+      security:
+        - BearerAuth: []
       parameters:
-        - name: sql_context
+        - name: dataset_urn
           in: query
-          required: false
-          description: Include text-to-SQL context and inferred join paths
+          required: true
+          description: URN of the dataset to reindex
           schema:
-            type: boolean
-            default: false
+            type: string
       responses:
         "200":
-          description: Search-indexed metadata, optionally with SQL context
+          description: Reindex job triggered
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/SearchResult"
-                  - type: object
-                    properties:
-                      sql_context:
-                        description: Present only when `?sql_context=true`
-                        $ref: "#/components/schemas/TextToSqlContext"
+                $ref: "#/components/schemas/MethodResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/common/search/method/reindex:
-    post:
-      tags: [common]
-      operationId: reindex_dataset
-      summary: Trigger reindex for a dataset
-      description: Requires any valid group claim.
+  # ==========================================================================
+  # DG — Metric
+  # ==========================================================================
+
+  /spoke/dg/metric:
+    get:
+      operationId: listMetrics
+      summary: List all governance metrics
+      description: Paginated list of metrics. Filterable by theme and status.
+      tags: [dg]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort"
+        - name: theme
+          in: query
+          description: Filter by metric theme
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by metric active status
+          schema:
+            type: string
+            enum: [active, inactive]
+      responses:
+        "200":
+          description: Paginated list of metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/dg/metric/{metric_id}:
+    parameters:
+      - $ref: "#/components/parameters/metric_id"
+    get:
+      operationId: getMetric
+      summary: Get metric summary
+      description: Returns identity, theme, and active status.
+      tags: [dg]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Metric summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/dg/metric/{metric_id}/attr:
+    parameters:
+      - $ref: "#/components/parameters/metric_id"
+    get:
+      operationId: getMetricAttr
+      summary: Get metric attributes overview
+      description: Returns theme, period, active status, and alarm enabled flag.
+      tags: [dg]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Metric attributes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricAttr"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/dg/metric/{metric_id}/attr/conf:
+    parameters:
+      - $ref: "#/components/parameters/metric_id"
+    get:
+      operationId: getMetricConf
+      summary: Get full metric definition
+      description: Returns title, theme, measurement period, alarm setup, and active status.
+      tags: [dg]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Full metric definition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricConf"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      operationId: putMetricConf
+      summary: Create or replace metric definition
+      tags: [dg]
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [dataset_urn]
-              properties:
-                dataset_urn:
-                  type: string
-                  description: URL-encoded DataHub dataset URN
-                  example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+              $ref: "#/components/schemas/MetricConfWrite"
       responses:
         "200":
-          description: Reindex triggered
+          description: Metric definition replaced
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  dataset_urn:
-                    type: string
-                  status:
-                    type: string
-                    example: "reindexing"
-                  resp_time:
-                    $ref: "#/components/schemas/Timestamp"
+                $ref: "#/components/schemas/MetricConf"
+        "201":
+          description: Metric definition created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricConf"
         "400":
           $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  # ── DA: Validator ─────────────────────────────────────────────────────────
-
-  /api/v1/spoke/da/validator/{dataset_urn}:
-    parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
-    get:
-      tags: [da]
-      operationId: da_get_validation_result
-      summary: Get validation result for dataset
-      description: Requires group claim `da`.
-      responses:
-        "200":
-          description: Validation result
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ValidationResult"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /api/v1/spoke/da/validator/{dataset_urn}/method/validate:
-    parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
-    post:
-      tags: [da]
-      operationId: da_run_validation
-      summary: Run validation (writes result)
-      description: Requires group claim `da`. Returns 409 if a validation is already running.
-      responses:
-        "200":
-          description: Validation triggered
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ValidationResult"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -979,347 +2150,335 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
-
-  /api/v1/spoke/da/validator/{dataset_urn}/method/dry-validate:
-    parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
-    post:
-      tags: [da]
-      operationId: da_dry_validate
-      summary: Dry-run validation (no write)
-      description: Requires group claim `da`.
-      responses:
-        "200":
-          description: Dry-run validation result
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ValidationResult"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /api/v1/spoke/da/validator/{dataset_urn}/event:
-    parameters:
-      - $ref: "#/components/parameters/DatasetUrn"
-    get:
-      tags: [da]
-      operationId: da_list_validation_events
-      summary: Validation run history
-      description: Requires group claim `da`.
-      parameters:
-        - $ref: "#/components/parameters/Offset"
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Sort"
-      responses:
-        "200":
-          description: Validation run history
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - type: object
-                    properties:
-                      events:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/ValidationRunEvent"
-                  - $ref: "#/components/schemas/PaginationMeta"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  # ── DG: Metrics ───────────────────────────────────────────────────────────
-
-  /api/v1/spoke/dg/metrics:
-    get:
-      tags: [dg]
-      operationId: get_metrics_snapshot
-      summary: Get aggregated enterprise metrics snapshot
-      description: Requires group claim `dg`.
-      responses:
-        "200":
-          description: Enterprise metrics snapshot
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MetricsSnapshot"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-
-  /api/v1/spoke/dg/metrics/attr:
-    get:
-      tags: [dg]
-      operationId: get_metrics_attr
-      summary: Get metrics config (thresholds, alert rules)
-      description: Requires group claim `dg`.
-      responses:
-        "200":
-          description: Metrics config
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MetricsAttr"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
     patch:
+      operationId: patchMetricConf
+      summary: Update metric definition fields
       tags: [dg]
-      operationId: update_metrics_attr
-      summary: Update metrics config
-      description: Requires group claim `dg`.
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/MetricsAttrUpdate"
+              $ref: "#/components/schemas/MetricConfPatch"
       responses:
         "200":
-          description: Updated metrics config
+          description: Metric definition updated
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MetricsAttr"
+                $ref: "#/components/schemas/MetricConf"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
-
-  /api/v1/spoke/dg/metrics/event:
-    get:
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: deleteMetricConf
+      summary: Remove metric definition
       tags: [dg]
-      operationId: list_metrics_collection_events
-      summary: Metrics collection run history
-      description: Requires group claim `dg`.
-      parameters:
-        - $ref: "#/components/parameters/Offset"
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Sort"
+      security:
+        - BearerAuth: []
       responses:
-        "200":
-          description: Metrics collection run history
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - type: object
-                    properties:
-                      events:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/MetricsEvent"
-                  - $ref: "#/components/schemas/PaginationMeta"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-
-  /api/v1/spoke/dg/metrics/{department_id}:
-    parameters:
-      - $ref: "#/components/parameters/DepartmentId"
-    get:
-      tags: [dg]
-      operationId: get_department_metrics
-      summary: Get department-level metrics
-      description: Requires group claim `dg`.
-      responses:
-        "200":
-          description: Department metrics
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DepartmentMetrics"
+        "204":
+          description: Metric definition deleted
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/dg/metrics/{department_id}/event:
+  /spoke/dg/metric/{metric_id}/attr/result:
     parameters:
-      - $ref: "#/components/parameters/DepartmentId"
+      - $ref: "#/components/parameters/metric_id"
     get:
+      operationId: getMetricResult
+      summary: Get measurement results for metric
+      description: Returns numeric timeseries. Use `?from=…&to=…` to narrow the time range.
       tags: [dg]
-      operationId: list_department_metrics_events
-      summary: Department metrics history (time-series)
-      description: Requires group claim `dg`.
+      security:
+        - BearerAuth: []
       parameters:
-        - $ref: "#/components/parameters/Offset"
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
       responses:
         "200":
-          description: Department metrics history
+          description: Paginated metric measurement results
           content:
             application/json:
               schema:
-                allOf:
-                  - type: object
-                    properties:
-                      events:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/DepartmentMetricsEvent"
-                  - $ref: "#/components/schemas/PaginationMeta"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  # ── DG: Overview ──────────────────────────────────────────────────────────
-
-  /api/v1/spoke/dg/overview:
-    get:
-      tags: [dg]
-      operationId: get_overview
-      summary: Get multi-perspective overview (graph + medallion)
-      description: Requires group claim `dg`.
-      responses:
-        "200":
-          description: Multi-perspective overview
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Overview"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-
-  /api/v1/spoke/dg/overview/attr:
-    get:
-      tags: [dg]
-      operationId: get_overview_attr
-      summary: Get visualization config (layout, coloring, filters)
-      description: Requires group claim `dg`.
-      responses:
-        "200":
-          description: Visualization config
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/OverviewAttr"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-    patch:
-      tags: [dg]
-      operationId: update_overview_attr
-      summary: Update visualization config
-      description: Requires group claim `dg`.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/OverviewAttrUpdate"
-      responses:
-        "200":
-          description: Updated visualization config
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/OverviewAttr"
+                $ref: "#/components/schemas/MetricResultList"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/spoke/dg/overview/blind-spots:
-    get:
+  /spoke/dg/metric/{metric_id}/method/run:
+    parameters:
+      - $ref: "#/components/parameters/metric_id"
+    post:
+      operationId: runMetric
+      summary: Trigger a metric measurement run
       tags: [dg]
-      operationId: list_blind_spots
-      summary: List datasets with no taxonomy assignment or health score
-      description: Requires group claim `dg`.
-      parameters:
-        - $ref: "#/components/parameters/Offset"
-        - $ref: "#/components/parameters/Limit"
+      security:
+        - BearerAuth: []
       responses:
         "200":
-          description: Blind-spot datasets
+          description: Metric measurement run triggered
           content:
             application/json:
               schema:
-                allOf:
-                  - type: object
-                    properties:
-                      datasets:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/BlindSpotDataset"
-                  - $ref: "#/components/schemas/PaginationMeta"
+                $ref: "#/components/schemas/RunTriggered"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  # ── Hub pass-through ──────────────────────────────────────────────────────
-
-  /api/v1/hub/graphql:
+  /spoke/dg/metric/{metric_id}/method/activate:
+    parameters:
+      - $ref: "#/components/parameters/metric_id"
     post:
-      tags: [hub]
-      operationId: hub_graphql
-      summary: Proxy DataHub GraphQL queries
-      description: >
-        Forwards the request body to DataHub GMS GraphQL after JWT validation.
-        Any valid group (de, da, dg) may call this endpoint.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [query]
-              properties:
-                query:
-                  type: string
-                  description: GraphQL query string
-                  example: "{ search(input: { type: DATASET, query: \"orders\", start: 0, count: 10 }) { total } }"
-                variables:
-                  type: object
-                  additionalProperties: true
-                  description: GraphQL variables
+      operationId: activateMetric
+      summary: Activate metric (enable scheduled measurement)
+      tags: [dg]
+      security:
+        - BearerAuth: []
       responses:
         "200":
-          description: DataHub GraphQL response (proxied)
+          description: Metric activated
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: object
-                    additionalProperties: true
-                  errors:
-                    type: array
-                    items:
-                      type: object
+                $ref: "#/components/schemas/MethodResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/dg/metric/{metric_id}/method/deactivate:
+    parameters:
+      - $ref: "#/components/parameters/metric_id"
+    post:
+      operationId: deactivateMetric
+      summary: Deactivate metric
+      tags: [dg]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Metric deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MethodResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /spoke/dg/metric/{metric_id}/event:
+    parameters:
+      - $ref: "#/components/parameters/metric_id"
+    get:
+      operationId: listMetricEvents
+      summary: Get metric run events and alarm notices
+      tags: [dg]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/sort_occurred_at"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+      responses:
+        "200":
+          description: Paginated metric event log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ==========================================================================
+  # DG — Overview
+  # ==========================================================================
+
+  /spoke/dg/overview:
+    get:
+      operationId: getDgOverview
+      summary: Get multi-perspective overview snapshot
+      description: |
+        Returns graph-based topology views, medallion layer coverage maps, and similar
+        structural views of the data estate.
+      tags: [dg]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Overview snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DgOverview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
-  /api/v1/hub/openapi/{path}:
+  /spoke/dg/overview/attr:
+    get:
+      operationId: getDgOverviewAttr
+      summary: Get visualization configuration
+      description: Returns layout, coloring, and filter settings for the overview.
+      tags: [dg]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Visualization configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DgOverviewAttr"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    patch:
+      operationId: patchDgOverviewAttr
+      summary: Update visualization configuration
+      tags: [dg]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DgOverviewAttrPatch"
+      responses:
+        "200":
+          description: Visualization configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DgOverviewAttr"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ==========================================================================
+  # Hub pass-through
+  # ==========================================================================
+
+  /hub/graphql:
+    post:
+      operationId: hubGraphql
+      summary: Proxy DataHub GraphQL queries
+      description: |
+        Forwards the request body to the DataHub GMS GraphQL endpoint after JWT validation.
+        Returns the DataHub response as-is.
+      tags: [hub]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GraphQLRequest"
+      responses:
+        "200":
+          description: DataHub GraphQL response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphQLResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /hub/openapi/{path}:
     parameters:
       - name: path
         in: path
@@ -1327,47 +2486,174 @@ paths:
         description: DataHub REST OpenAPI path to proxy
         schema:
           type: string
-          example: "entities/dataset"
     get:
+      operationId: hubOpenapiGet
+      summary: Proxy DataHub REST OpenAPI (GET)
       tags: [hub]
-      operationId: hub_openapi_proxy
-      summary: Proxy DataHub REST OpenAPI endpoints
-      description: >
-        Forwards GET requests to DataHub GMS REST API after JWT validation.
-        Any valid group (de, da, dg) may call this endpoint.
+      security:
+        - BearerAuth: []
       responses:
         "200":
-          description: DataHub REST response (proxied)
+          description: DataHub REST response
           content:
             application/json:
               schema:
                 type: object
-                additionalProperties: true
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    post:
+      operationId: hubOpenapiPost
+      summary: Proxy DataHub REST OpenAPI (POST)
+      tags: [hub]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: DataHub REST response
+          content:
+            application/json:
+              schema:
+                type: object
+        "201":
+          description: DataHub resource created
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    put:
+      operationId: hubOpenapiPut
+      summary: Proxy DataHub REST OpenAPI (PUT)
+      tags: [hub]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: DataHub REST response
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    patch:
+      operationId: hubOpenapiPatch
+      summary: Proxy DataHub REST OpenAPI (PATCH)
+      tags: [hub]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: DataHub REST response
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    delete:
+      operationId: hubOpenapiDelete
+      summary: Proxy DataHub REST OpenAPI (DELETE)
+      tags: [hub]
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: DataHub resource deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 
 # ---------------------------------------------------------------------------
 # Components
 # ---------------------------------------------------------------------------
 components:
 
+  # --------------------------------------------------------------------------
+  # Security Schemes
+  # --------------------------------------------------------------------------
   securitySchemes:
     BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: >
-        JWT access token issued by `POST /api/v1/auth/token`.
-        Lifetime: 15 minutes. Include in the `Authorization: Bearer <token>` header.
+      description: |
+        JWT access token. Obtain via `POST /auth/token`. Pass as
+        `Authorization: Bearer <access_token>`.
 
-  # ── Parameters ─────────────────────────────────────────────────────────────
-
+  # --------------------------------------------------------------------------
+  # Reusable Parameters
+  # --------------------------------------------------------------------------
   parameters:
-    Offset:
+    dataset_urn:
+      name: dataset_urn
+      in: path
+      required: true
+      description: URL-encoded DataHub dataset URN (e.g. `urn%3Ali%3Adataset%3A%28urn%3Ali%3AdataPlatform%3Asnowflake%2Corders%2CPROD%29`)
+      schema:
+        type: string
+
+    concept_id:
+      name: concept_id
+      in: path
+      required: true
+      description: Ontology concept identifier
+      schema:
+        type: string
+
+    metric_id:
+      name: metric_id
+      in: path
+      required: true
+      description: Governance metric identifier
+      schema:
+        type: string
+
+    offset:
       name: offset
       in: query
       description: Pagination start index (0-based)
@@ -1375,68 +2661,67 @@ components:
         type: integer
         default: 0
         minimum: 0
-    Limit:
+
+    limit:
       name: limit
       in: query
-      description: Page size (max 100)
+      description: Page size
       schema:
         type: integer
         default: 20
         minimum: 1
         maximum: 100
-    Sort:
+
+    sort:
       name: sort
       in: query
-      description: "Sort field + direction, e.g. `quality_score_desc`, `occurred_at_desc`"
+      description: |
+        Sort field and direction as `{field}_{asc|desc}`, e.g. `created_at_desc`.
       schema:
         type: string
-        example: "occurred_at_desc"
-    DatasetUrn:
-      name: dataset_urn
-      in: path
-      required: true
-      description: URL-encoded DataHub dataset URN (e.g. `urn%3Ali%3Adataset%3A...`)
-      schema:
-        type: string
-        example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
-    ConceptId:
-      name: concept_id
-      in: path
-      required: true
-      description: Ontology concept identifier
-      schema:
-        type: string
-        example: "concept-revenue-001"
-    ConfigId:
-      name: config_id
-      in: path
-      required: true
-      description: Ingestion config identifier
-      schema:
-        type: string
-        example: "cfg-mysql-prod-001"
-    DepartmentId:
-      name: department_id
-      in: path
-      required: true
-      description: Department identifier
-      schema:
-        type: string
-        example: "dept-marketing"
 
-  # ── Responses ──────────────────────────────────────────────────────────────
+    sort_occurred_at:
+      name: sort
+      in: query
+      description: |
+        Sort field and direction. Default for event and result endpoints is `occurred_at_desc`.
+      schema:
+        type: string
+        default: occurred_at_desc
 
+    from:
+      name: from
+      in: query
+      description: Start of time-range filter (ISO 8601 UTC), inclusive
+      schema:
+        type: string
+        format: date-time
+        example: "2026-01-01T00:00:00.000Z"
+
+    to:
+      name: to
+      in: query
+      description: End of time-range filter (ISO 8601 UTC), inclusive
+      schema:
+        type: string
+        format: date-time
+        example: "2026-02-27T23:59:59.999Z"
+
+  # --------------------------------------------------------------------------
+  # Reusable Responses
+  # --------------------------------------------------------------------------
   responses:
     BadRequest:
-      description: Malformed request or invalid parameter values
+      description: Malformed request, missing required fields, or invalid parameter values
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
           example:
-            error_code: "INVALID_PARAMETER"
+            error_code: INVALID_PARAMETER
             message: "The 'limit' field must be an integer between 1 and 100."
             trace_id: "550e8400-e29b-41d4-a716-446655440000"
+
     Unauthorized:
       description: Missing, expired, or malformed access token
       content:
@@ -1444,19 +2729,21 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
           example:
-            error_code: "UNAUTHORIZED"
+            error_code: UNAUTHORIZED
             message: "Access token is missing or has expired."
-            trace_id: "550e8400-e29b-41d4-a716-446655440001"
+            trace_id: "550e8400-e29b-41d4-a716-446655440000"
+
     Forbidden:
-      description: Valid token but insufficient group claim
+      description: Valid token but insufficient group claim for this route
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
           example:
-            error_code: "FORBIDDEN"
-            message: "Your account does not have the 'de' group claim required for this endpoint."
-            trace_id: "550e8400-e29b-41d4-a716-446655440002"
+            error_code: FORBIDDEN
+            message: "Your account does not have access to this resource."
+            trace_id: "550e8400-e29b-41d4-a716-446655440000"
+
     NotFound:
       description: Resource does not exist
       content:
@@ -1464,19 +2751,48 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
           example:
-            error_code: "DATASET_NOT_FOUND"
+            error_code: DATASET_NOT_FOUND
             message: "No dataset found for URN 'urn:li:dataset:unknown'."
-            trace_id: "550e8400-e29b-41d4-a716-446655440003"
+            trace_id: "550e8400-e29b-41d4-a716-446655440000"
+
     Conflict:
-      description: Duplicate resource or operation already in progress
+      description: Duplicate resource or a run already in progress
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
           example:
-            error_code: "INGESTION_RUNNING"
-            message: "A run is already in progress for config 'cfg-mysql-prod-001'."
-            trace_id: "550e8400-e29b-41d4-a716-446655440004"
+            error_code: INGESTION_RUNNING
+            message: "An ingestion run is already in progress for this dataset."
+            trace_id: "550e8400-e29b-41d4-a716-446655440000"
+
+    UnprocessableEntity:
+      description: Pydantic validation failure (field type mismatch or constraint violation)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error_code: MISSING_REQUIRED_FIELD
+            message: "Required field 'source_type' was not provided."
+            trace_id: "550e8400-e29b-41d4-a716-446655440000"
+
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error_code: RATE_LIMIT_EXCEEDED
+            message: "Too many requests. Please back off and retry."
+            trace_id: "550e8400-e29b-41d4-a716-446655440000"
+
     BadGateway:
       description: DataHub GMS unreachable or returned an unexpected error
       content:
@@ -1484,21 +2800,36 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
           example:
-            error_code: "DATAHUB_UNAVAILABLE"
-            message: "DataHub GMS did not respond within the timeout period."
-            trace_id: "550e8400-e29b-41d4-a716-446655440005"
+            error_code: DATAHUB_UNAVAILABLE
+            message: "DataHub GMS did not respond."
+            trace_id: "550e8400-e29b-41d4-a716-446655440000"
 
-  # ── Schemas ────────────────────────────────────────────────────────────────
+    ServiceUnavailable:
+      description: PostgreSQL, Redis, or Qdrant connection failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error_code: STORAGE_UNAVAILABLE
+            message: "Unable to connect to the operational database."
+            trace_id: "550e8400-e29b-41d4-a716-446655440000"
 
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  # --------------------------------------------------------------------------
+  # Reusable Schemas
+  # --------------------------------------------------------------------------
   schemas:
 
-    # Primitives / shared
-
-    Timestamp:
-      type: string
-      format: date-time
-      description: ISO 8601 UTC timestamp
-      example: "2026-02-27T10:00:00.000Z"
+    # ------------------------------------------------------------------
+    # Primitives and shared building blocks
+    # ------------------------------------------------------------------
 
     ErrorResponse:
       type: object
@@ -1507,16 +2838,29 @@ components:
         error_code:
           type: string
           description: Machine-readable error code
-          example: "DATASET_NOT_FOUND"
+          enum:
+            - INVALID_PARAMETER
+            - MISSING_REQUIRED_FIELD
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - DATASET_NOT_FOUND
+            - CONCEPT_NOT_FOUND
+            - CONFIG_NOT_FOUND
+            - METRIC_NOT_FOUND
+            - DUPLICATE_CONFIG
+            - INGESTION_RUNNING
+            - VALIDATION_RUNNING
+            - GENERATION_RUNNING
+            - DATAHUB_UNAVAILABLE
+            - STORAGE_UNAVAILABLE
+            - RATE_LIMIT_EXCEEDED
         message:
           type: string
-          description: Human-readable error description
-          example: "No dataset found for URN 'urn:li:dataset:unknown'."
+          description: Human-readable description of the error
         trace_id:
           type: string
           format: uuid
-          description: UUID v4 trace identifier for log correlation
-          example: "550e8400-e29b-41d4-a716-446655440000"
+          description: UUID v4 trace identifier; echoes X-Trace-Id request header
 
     PaginationMeta:
       type: object
@@ -1524,772 +2868,1156 @@ components:
       properties:
         offset:
           type: integer
-          example: 0
+          description: Start index used in this response
         limit:
           type: integer
-          example: 20
+          description: Page size used in this response
         total_count:
           type: integer
-          example: 143
+          description: Total number of items matching the query
         resp_time:
-          $ref: "#/components/schemas/Timestamp"
+          type: string
+          format: date-time
+          description: Server time at response generation (ISO 8601 UTC)
+          example: "2026-02-27T10:00:00.000Z"
 
+    RespTimeMixin:
+      type: object
+      required: [resp_time]
+      properties:
+        resp_time:
+          type: string
+          format: date-time
+          description: Server time at response generation (ISO 8601 UTC)
+          example: "2026-02-27T10:00:00.000Z"
+
+    # A uniform event item shared across all event endpoints.
+    EventItem:
+      type: object
+      required: [event_id, event_type, status, occurred_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          description: "Category of the event, e.g. ingestion_run, validation_run, generation_run, concept_approved"
+        status:
+          type: string
+          enum: [success, failure, warning, info]
+        occurred_at:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp
+        detail:
+          type: object
+          description: Event-type-specific payload
+          additionalProperties: true
+
+    EventList:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMeta"
+        - type: object
+          required: [events]
+          properties:
+            events:
+              type: array
+              items:
+                $ref: "#/components/schemas/EventItem"
+
+    MethodResponse:
+      allOf:
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [status]
+          properties:
+            status:
+              type: string
+              enum: [ok, pending]
+            message:
+              type: string
+
+    RunTriggered:
+      allOf:
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [run_id, status]
+          properties:
+            run_id:
+              type: string
+              format: uuid
+              description: Temporal workflow run identifier
+            status:
+              type: string
+              enum: [triggered, dry_run_completed]
+            dry_run:
+              type: boolean
+
+    # ------------------------------------------------------------------
+    # System
+    # ------------------------------------------------------------------
+
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    ReadyResponse:
+      type: object
+      required: [status, checks]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        checks:
+          type: object
+          properties:
+            datahub:
+              type: string
+              enum: [ok, error]
+            postgres:
+              type: string
+              enum: [ok, error]
+            redis:
+              type: string
+              enum: [ok, error]
+
+    # ------------------------------------------------------------------
     # Auth
+    # ------------------------------------------------------------------
 
-    AuthTokenRequest:
+    TokenRequest:
       type: object
       required: [email, password]
       properties:
         email:
           type: string
           format: email
-          example: "engineer@example.com"
         password:
           type: string
           format: password
-          example: "s3cr3t!"
 
-    AuthTokenResponse:
+    TokenResponse:
       type: object
-      required: [access_token, token_type, expires_in, resp_time]
+      required: [access_token, token_type, expires_in]
       properties:
         access_token:
           type: string
-          description: JWT access token (15-minute lifetime)
-          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          description: Short-lived JWT (15 min)
         token_type:
           type: string
-          example: "Bearer"
+          enum: [bearer]
         expires_in:
           type: integer
-          description: Access token lifetime in seconds
+          description: Seconds until the access token expires
           example: 900
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
 
-    # System
-
-    HealthResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          example: "ok"
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
-
-    ReadyResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          example: "ready"
-        checks:
-          type: object
-          properties:
-            datahub:
-              type: boolean
-              example: true
-            postgresql:
-              type: boolean
-              example: true
-            redis:
-              type: boolean
-              example: true
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
-
-    # Quality
-
-    QualityScore:
-      type: object
-      required: [dataset_urn, score, resp_time]
-      properties:
-        dataset_urn:
-          type: string
-          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
-        score:
-          type: integer
-          minimum: 0
-          maximum: 100
-          example: 82
-        grade:
-          type: string
-          enum: [A, B, C, D, F]
-          example: "B"
-        dimensions:
-          type: object
-          properties:
-            completeness:
-              type: integer
-              example: 90
-            freshness:
-              type: integer
-              example: 70
-            accuracy:
-              type: integer
-              example: 85
-            consistency:
-              type: integer
-              example: 80
-        computed_at:
-          $ref: "#/components/schemas/Timestamp"
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
-
-    QualityScoreEvent:
-      type: object
-      properties:
-        event_id:
-          type: string
-          example: "evt-qs-001"
-        dataset_urn:
-          type: string
-          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
-        score:
-          type: integer
-          example: 78
-        occurred_at:
-          $ref: "#/components/schemas/Timestamp"
-
+    # ------------------------------------------------------------------
     # Ontology
+    # ------------------------------------------------------------------
 
     OntologyConcept:
       type: object
-      required: [concept_id, name, status]
+      required: [concept_id, name, status, created_at]
       properties:
         concept_id:
           type: string
-          example: "concept-revenue-001"
         name:
           type: string
-          example: "Revenue"
-        category:
+        description:
           type: string
-          example: "Financial"
+        parent_id:
+          type: string
+          nullable: true
         status:
           type: string
-          enum: [approved, pending, rejected]
-          example: "approved"
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
-
-    OntologyConceptDetail:
-      allOf:
-        - $ref: "#/components/schemas/OntologyConcept"
-        - type: object
-          properties:
-            description:
-              type: string
-              example: "Total monetary value generated from sales before deductions."
-            parent_concept_id:
-              type: string
-              nullable: true
-              example: null
-            related_dataset_urns:
-              type: array
-              items:
-                type: string
-              example:
-                - "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
-            resp_time:
-              $ref: "#/components/schemas/Timestamp"
-
-    OntologyConceptAttr:
-      type: object
-      properties:
-        concept_id:
-          type: string
-          example: "concept-revenue-001"
-        confidence:
+          enum: [active, pending, rejected]
+        confidence_score:
           type: number
           format: float
           minimum: 0
           maximum: 1
-          example: 0.93
-        parent_concept_id:
-          type: string
-          nullable: true
-          example: null
-        source:
-          type: string
-          example: "ai-generated"
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
-
-    OntologyConceptEvent:
-      type: object
-      properties:
-        event_id:
-          type: string
-          example: "evt-ont-001"
-        concept_id:
-          type: string
-          example: "concept-revenue-001"
-        action:
-          type: string
-          enum: [created, updated, approved, rejected]
-          example: "approved"
-        actor:
-          type: string
-          example: "user@example.com"
-        occurred_at:
-          $ref: "#/components/schemas/Timestamp"
-
-    # Ingestion
-
-    IngestionConfig:
-      type: object
-      required: [config_id, name, source_type, status, resp_time]
-      properties:
-        config_id:
-          type: string
-          example: "cfg-mysql-prod-001"
-        name:
-          type: string
-          example: "MySQL Production Ingestion"
-        source_type:
-          type: string
-          example: "mysql"
-        connection:
-          type: object
-          additionalProperties: true
-          description: Source-specific connection parameters
-          example:
-            host: "db.example.com"
-            port: 3306
-            database: "prod"
-        schedule:
-          type: string
-          description: Cron expression for scheduled runs
-          example: "0 2 * * *"
-        status:
-          type: string
-          enum: [active, inactive, running, error]
-          example: "active"
         created_at:
-          $ref: "#/components/schemas/Timestamp"
-        updated_at:
-          $ref: "#/components/schemas/Timestamp"
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
+          type: string
+          format: date-time
 
-    IngestionConfigCreate:
-      type: object
-      required: [name, source_type]
-      properties:
-        name:
-          type: string
-          example: "MySQL Production Ingestion"
-        source_type:
-          type: string
-          example: "mysql"
-        connection:
-          type: object
-          additionalProperties: true
-          example:
-            host: "db.example.com"
-            port: 3306
-            database: "prod"
-        schedule:
-          type: string
-          example: "0 2 * * *"
+    OntologyConceptList:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMeta"
+        - type: object
+          required: [concepts]
+          properties:
+            concepts:
+              type: array
+              items:
+                $ref: "#/components/schemas/OntologyConcept"
 
-    IngestionConfigUpdate:
-      type: object
-      properties:
-        name:
-          type: string
-          example: "MySQL Production Ingestion v2"
-        connection:
-          type: object
-          additionalProperties: true
-        schedule:
-          type: string
-          example: "0 3 * * *"
-        status:
-          type: string
-          enum: [active, inactive]
+    OntologyConceptDetail:
+      allOf:
+        - $ref: "#/components/schemas/OntologyConcept"
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          properties:
+            relationships:
+              type: array
+              items:
+                type: object
+                required: [related_concept_id, relationship_type]
+                properties:
+                  related_concept_id:
+                    type: string
+                  relationship_type:
+                    type: string
+                    enum: [parent, child, related, synonym]
 
-    IngestionRunEvent:
-      type: object
-      properties:
-        event_id:
-          type: string
-          example: "evt-ing-001"
-        config_id:
-          type: string
-          example: "cfg-mysql-prod-001"
-        run_type:
-          type: string
-          enum: [run, dry_run]
-          example: "run"
-        status:
-          type: string
-          enum: [pending, running, completed, failed]
-          example: "completed"
-        records_ingested:
-          type: integer
-          nullable: true
-          example: 4820
-        error_message:
-          type: string
-          nullable: true
-          example: null
-        started_at:
-          $ref: "#/components/schemas/Timestamp"
-        completed_at:
-          $ref: "#/components/schemas/Timestamp"
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
+    OntologyConceptAttr:
+      allOf:
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [concept_id, confidence_score, status]
+          properties:
+            concept_id:
+              type: string
+            parent_id:
+              type: string
+              nullable: true
+            confidence_score:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+            status:
+              type: string
+              enum: [active, pending, rejected]
+            updated_at:
+              type: string
+              format: date-time
 
-    # Validation
-
-    ValidationIssue:
+    ConceptApproveRequest:
       type: object
       properties:
-        type:
+        comment:
           type: string
-          example: "freshness"
-        severity:
-          type: string
-          enum: [info, warning, error]
-          example: "warning"
-        detail:
-          type: string
-          example: "Last updated 3 days ago"
 
-    ValidationResult:
+    ConceptRejectRequest:
       type: object
-      required: [dataset_urn, status, resp_time]
+      properties:
+        reason:
+          type: string
+
+    # ------------------------------------------------------------------
+    # Data Resource
+    # ------------------------------------------------------------------
+
+    DatasetSummary:
+      allOf:
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [urn, name]
+          properties:
+            urn:
+              type: string
+              description: DataHub dataset URN
+            name:
+              type: string
+            platform:
+              type: string
+              description: Data platform name (e.g. snowflake, bigquery)
+            description:
+              type: string
+              nullable: true
+            owners:
+              type: array
+              items:
+                type: string
+            tags:
+              type: array
+              items:
+                type: string
+            quality_score:
+              type: integer
+              minimum: 0
+              maximum: 100
+              nullable: true
+
+    DatasetAttr:
+      allOf:
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [urn]
+          properties:
+            urn:
+              type: string
+            schema_summary:
+              type: object
+              properties:
+                field_count:
+                  type: integer
+                fields:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      type:
+                        type: string
+                      nullable:
+                        type: boolean
+            owners:
+              type: array
+              items:
+                type: string
+            tags:
+              type: array
+              items:
+                type: string
+            glossary_terms:
+              type: array
+              items:
+                type: string
+            last_modified:
+              type: string
+              format: date-time
+              nullable: true
+
+    # ------------------------------------------------------------------
+    # Ingestion Configuration
+    # ------------------------------------------------------------------
+
+    IngestionConfBase:
+      type: object
+      required: [dataset_urn, source_type]
       properties:
         dataset_urn:
           type: string
-          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
-        status:
+        source_type:
           type: string
-          enum: [pending, running, completed, failed]
-          example: "completed"
+          description: "Ingestion source type, e.g. snowflake, bigquery, confluence"
+        schedule:
+          type: string
+          description: Cron expression for scheduled ingestion
+          nullable: true
+        deep_spec_enabled:
+          type: boolean
+          default: false
+          description: Enable deep technical spec extraction
+        config_body:
+          type: object
+          description: Source-specific configuration (arbitrary JSON)
+          additionalProperties: true
+        owner:
+          type: string
+          nullable: true
+
+    IngestionConf:
+      allOf:
+        - $ref: "#/components/schemas/IngestionConfBase"
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [config_id, status, created_at]
+          properties:
+            config_id:
+              type: string
+              format: uuid
+            status:
+              type: string
+              enum: [active, inactive, error]
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+
+    IngestionConfWrite:
+      allOf:
+        - $ref: "#/components/schemas/IngestionConfBase"
+
+    IngestionConfPatch:
+      type: object
+      properties:
+        schedule:
+          type: string
+          nullable: true
+        deep_spec_enabled:
+          type: boolean
+        config_body:
+          type: object
+          additionalProperties: true
+        owner:
+          type: string
+          nullable: true
+
+    IngestionConfList:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMeta"
+        - type: object
+          required: [ingestion_configs]
+          properties:
+            ingestion_configs:
+              type: array
+              items:
+                $ref: "#/components/schemas/IngestionConf"
+
+    IngestionConfAttr:
+      allOf:
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [config_id, status]
+          properties:
+            config_id:
+              type: string
+              format: uuid
+            schedule:
+              type: string
+              nullable: true
+            deep_spec_enabled:
+              type: boolean
+            status:
+              type: string
+              enum: [active, inactive, error]
+            owner:
+              type: string
+              nullable: true
+            updated_at:
+              type: string
+              format: date-time
+
+    IngestionConfAttrPatch:
+      type: object
+      properties:
+        schedule:
+          type: string
+          nullable: true
+        deep_spec_enabled:
+          type: boolean
+        owner:
+          type: string
+          nullable: true
+
+    # ------------------------------------------------------------------
+    # Validation Configuration
+    # ------------------------------------------------------------------
+
+    ValidationRule:
+      type: object
+      required: [rule_id, rule_type]
+      properties:
+        rule_id:
+          type: string
+        rule_type:
+          type: string
+          description: "Rule type, e.g. not_null, uniqueness, freshness, custom_sql"
+        field:
+          type: string
+          nullable: true
+        threshold:
+          type: number
+          format: float
+          nullable: true
+        params:
+          type: object
+          additionalProperties: true
+
+    ValidationConfBase:
+      type: object
+      required: [dataset_urn]
+      properties:
+        dataset_urn:
+          type: string
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationRule"
+        schedule:
+          type: string
+          description: Cron expression for scheduled validation
+          nullable: true
+        result_retention_days:
+          type: integer
+          default: 90
+        owner:
+          type: string
+          nullable: true
+
+    ValidationConf:
+      allOf:
+        - $ref: "#/components/schemas/ValidationConfBase"
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [config_id, status, created_at]
+          properties:
+            config_id:
+              type: string
+              format: uuid
+            status:
+              type: string
+              enum: [active, inactive, error]
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+
+    ValidationConfWrite:
+      allOf:
+        - $ref: "#/components/schemas/ValidationConfBase"
+
+    ValidationConfPatch:
+      type: object
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationRule"
+        schedule:
+          type: string
+          nullable: true
+        result_retention_days:
+          type: integer
+        owner:
+          type: string
+          nullable: true
+
+    ValidationConfList:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMeta"
+        - type: object
+          required: [validation_configs]
+          properties:
+            validation_configs:
+              type: array
+              items:
+                $ref: "#/components/schemas/ValidationConf"
+
+    ValidationConfAttr:
+      allOf:
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [config_id, status]
+          properties:
+            config_id:
+              type: string
+              format: uuid
+            rule_count:
+              type: integer
+            schedule:
+              type: string
+              nullable: true
+            result_retention_days:
+              type: integer
+            status:
+              type: string
+              enum: [active, inactive, error]
+            owner:
+              type: string
+              nullable: true
+
+    ValidationConfAttrPatch:
+      type: object
+      properties:
+        schedule:
+          type: string
+          nullable: true
+        result_retention_days:
+          type: integer
+        owner:
+          type: string
+          nullable: true
+
+    ValidationResultItem:
+      type: object
+      required: [result_id, dataset_urn, quality_score, occurred_at]
+      properties:
+        result_id:
+          type: string
+          format: uuid
+        dataset_urn:
+          type: string
         quality_score:
           type: integer
-          nullable: true
-          example: 78
+          minimum: 0
+          maximum: 100
         issues:
           type: array
           items:
-            $ref: "#/components/schemas/ValidationIssue"
+            type: object
+            properties:
+              type:
+                type: string
+              severity:
+                type: string
+                enum: [critical, warning, info]
+              detail:
+                type: string
+              field:
+                type: string
+                nullable: true
         recommendations:
           type: array
           items:
             type: string
-          example:
-            - "Review freshness SLA"
-            - "Add ownership tag"
-        validated_at:
-          $ref: "#/components/schemas/Timestamp"
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
-
-    ValidationRunEvent:
-      type: object
-      properties:
-        event_id:
-          type: string
-          example: "evt-val-001"
-        dataset_urn:
-          type: string
-          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
-        run_type:
-          type: string
-          enum: [validate, dry_validate]
-          example: "validate"
-        quality_score:
-          type: integer
-          nullable: true
-          example: 78
-        status:
-          type: string
-          enum: [completed, failed]
-          example: "completed"
         occurred_at:
-          $ref: "#/components/schemas/Timestamp"
+          type: string
+          format: date-time
+        run_id:
+          type: string
+          format: uuid
 
-    # Doc suggestions
+    ValidationResultList:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMeta"
+        - type: object
+          required: [validation_results]
+          properties:
+            validation_results:
+              type: array
+              items:
+                $ref: "#/components/schemas/ValidationResultItem"
 
-    DocSuggestion:
+    # ------------------------------------------------------------------
+    # Generation Configuration
+    # ------------------------------------------------------------------
+
+    GenTargetField:
       type: object
-      required: [dataset_urn, status, resp_time]
+      required: [field_name]
+      properties:
+        field_name:
+          type: string
+          description: "Target metadata field, e.g. description, glossary_terms, tags"
+        overwrite_existing:
+          type: boolean
+          default: false
+
+    GenConfBase:
+      type: object
+      required: [dataset_urn]
       properties:
         dataset_urn:
           type: string
-          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
-        status:
-          type: string
-          enum: [none, generating, ready, applied]
-          example: "ready"
-        suggested_description:
-          type: string
-          nullable: true
-          example: "Contains all customer purchase orders placed via the e-commerce platform."
-        suggested_column_docs:
+        target_fields:
           type: array
-          nullable: true
           items:
-            type: object
-            properties:
-              column_name:
-                type: string
-                example: "order_id"
-              suggested_description:
-                type: string
-                example: "Unique identifier for each order."
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
+            $ref: "#/components/schemas/GenTargetField"
+        period:
+          type: string
+          description: Cron expression for scheduled generation
+          nullable: true
+        owner:
+          type: string
+          nullable: true
 
-    DocSuggestionAttr:
+    GenConf:
+      allOf:
+        - $ref: "#/components/schemas/GenConfBase"
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [config_id, status, created_at]
+          properties:
+            config_id:
+              type: string
+              format: uuid
+            status:
+              type: string
+              enum: [active, inactive, error]
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            latest_result:
+              $ref: "#/components/schemas/GenResultItem"
+              nullable: true
+
+    GenConfWrite:
+      allOf:
+        - $ref: "#/components/schemas/GenConfBase"
+
+    GenConfPatch:
       type: object
       properties:
-        dataset_urn:
+        target_fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/GenTargetField"
+        period:
           type: string
-          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
-        confidence:
-          type: number
-          format: float
-          example: 0.87
-        source:
+          nullable: true
+        owner:
           type: string
-          enum: [ai-generated, manual]
-          example: "ai-generated"
-        model_version:
-          type: string
-          example: "doc-gen-v2.1"
-        generated_at:
-          $ref: "#/components/schemas/Timestamp"
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
+          nullable: true
 
-    DocSuggestionEvent:
+    GenConfList:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMeta"
+        - type: object
+          required: [gen_configs]
+          properties:
+            gen_configs:
+              type: array
+              items:
+                $ref: "#/components/schemas/GenConf"
+
+    GenConfAttr:
+      allOf:
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [config_id, status]
+          properties:
+            config_id:
+              type: string
+              format: uuid
+            target_fields:
+              type: array
+              items:
+                $ref: "#/components/schemas/GenTargetField"
+            period:
+              type: string
+              nullable: true
+            status:
+              type: string
+              enum: [active, inactive, error]
+            owner:
+              type: string
+              nullable: true
+
+    GenConfAttrPatch:
       type: object
       properties:
-        event_id:
+        target_fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/GenTargetField"
+        period:
           type: string
-          example: "evt-doc-001"
+          nullable: true
+        owner:
+          type: string
+          nullable: true
+
+    GenResultItem:
+      type: object
+      required: [result_id, dataset_urn, status, occurred_at]
+      properties:
+        result_id:
+          type: string
+          format: uuid
         dataset_urn:
           type: string
-          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
-        action:
+        status:
           type: string
-          enum: [generated, applied]
-          example: "generated"
-        actor:
-          type: string
-          example: "engineer@example.com"
+          enum: [pending_review, approved, rejected, applied]
+        generated_fields:
+          type: object
+          description: Map of field name to generated value
+          additionalProperties:
+            type: string
         occurred_at:
-          $ref: "#/components/schemas/Timestamp"
+          type: string
+          format: date-time
+        run_id:
+          type: string
+          format: uuid
 
-    # Search
+    GenResultList:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMeta"
+        - type: object
+          required: [gen_results]
+          properties:
+            gen_results:
+              type: array
+              items:
+                $ref: "#/components/schemas/GenResultItem"
 
-    SearchResult:
+    GenApplyRequest:
       type: object
       properties:
-        dataset_urn:
+        result_id:
           type: string
-          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
+          format: uuid
+          description: Specific result to apply. If omitted, applies the latest approved result.
+
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
+
+    SearchResultItem:
+      type: object
+      required: [urn, name, score]
+      properties:
+        urn:
+          type: string
         name:
           type: string
-          example: "prod.orders"
         platform:
           type: string
-          example: "mysql"
         description:
           type: string
           nullable: true
-          example: "Customer purchase orders."
+        tags:
+          type: array
+          items:
+            type: string
+        owners:
+          type: array
+          items:
+            type: string
         quality_score:
           type: integer
           nullable: true
-          example: 82
-        relevance_score:
+        score:
+          type: number
+          format: float
+          description: Semantic similarity score (0.0–1.0)
+        sql_context:
+          description: Present only when `?sql_context=true`
+          nullable: true
+          type: object
+          properties:
+            columns:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  type:
+                    type: string
+                  sample_values:
+                    type: array
+                    items:
+                      type: string
+            join_paths:
+              type: array
+              items:
+                type: object
+                properties:
+                  target_urn:
+                    type: string
+                  join_keys:
+                    type: array
+                    items:
+                      type: string
+            sample_query:
+              type: string
+              nullable: true
+
+    SearchResultList:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMeta"
+        - type: object
+          required: [datasets]
+          properties:
+            datasets:
+              type: array
+              items:
+                $ref: "#/components/schemas/SearchResultItem"
+
+    # ------------------------------------------------------------------
+    # DG — Metric
+    # ------------------------------------------------------------------
+
+    MetricSummary:
+      allOf:
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [metric_id, title, theme, active]
+          properties:
+            metric_id:
+              type: string
+            title:
+              type: string
+            theme:
+              type: string
+              description: "Metric theme, e.g. documentation, ownership, freshness, errors"
+            active:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+
+    MetricList:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMeta"
+        - type: object
+          required: [metrics]
+          properties:
+            metrics:
+              type: array
+              items:
+                $ref: "#/components/schemas/MetricSummary"
+
+    MetricAttr:
+      allOf:
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [metric_id, theme, active]
+          properties:
+            metric_id:
+              type: string
+            theme:
+              type: string
+            period:
+              type: string
+              description: Cron expression for scheduled measurement
+              nullable: true
+            active:
+              type: boolean
+            alarm_enabled:
+              type: boolean
+
+    MetricConfBase:
+      type: object
+      required: [title, theme]
+      properties:
+        title:
+          type: string
+        theme:
+          type: string
+        description:
+          type: string
+          nullable: true
+        period:
+          type: string
+          description: Cron expression for scheduled measurement
+          nullable: true
+        alarm_enabled:
+          type: boolean
+          default: false
+        alarm_threshold:
           type: number
           format: float
           nullable: true
-          example: 0.94
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
-
-    # Text-to-SQL
-
-    TextToSqlContext:
-      type: object
-      properties:
-        dataset_urn:
-          type: string
-          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.orders,PROD)"
-        table_name:
-          type: string
-          example: "orders"
-        columns:
-          type: array
-          items:
-            type: object
-            properties:
-              name:
-                type: string
-                example: "order_id"
-              data_type:
-                type: string
-                example: "BIGINT"
-              description:
-                type: string
-                nullable: true
-                example: "Unique order identifier."
-              is_primary_key:
-                type: boolean
-                example: true
-              is_foreign_key:
-                type: boolean
-                example: false
-        sample_values:
+          description: Trigger alarm when measured value exceeds this threshold
+        filters:
           type: object
-          additionalProperties:
-            type: array
-            items:
-              type: string
-          example:
-            order_id: ["1001", "1002", "1003"]
-            status: ["shipped", "pending", "cancelled"]
-        join_paths:
-          type: array
-          description: Inferred join paths from this dataset's foreign key relationships
-          items:
-            $ref: "#/components/schemas/JoinPath"
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
+          description: Optional filter criteria (e.g. medallion layer, domain)
+          additionalProperties: true
 
-    JoinPath:
+    MetricConf:
+      allOf:
+        - $ref: "#/components/schemas/MetricConfBase"
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [metric_id, active, created_at]
+          properties:
+            metric_id:
+              type: string
+            active:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+
+    MetricConfWrite:
+      allOf:
+        - $ref: "#/components/schemas/MetricConfBase"
+
+    MetricConfPatch:
       type: object
       properties:
-        path_id:
+        title:
           type: string
-          example: "join-001"
-        steps:
-          type: array
-          items:
-            type: object
-            properties:
-              from_urn:
-                type: string
-              to_urn:
-                type: string
-              join_condition:
-                type: string
-                example: "orders.customer_id = customers.id"
-        confidence:
+        description:
+          type: string
+          nullable: true
+        period:
+          type: string
+          nullable: true
+        alarm_enabled:
+          type: boolean
+        alarm_threshold:
           type: number
           format: float
-          example: 0.91
-
-    # Metrics (DG)
-
-    MetricsSnapshot:
-      type: object
-      properties:
-        snapshot_at:
-          $ref: "#/components/schemas/Timestamp"
-        total_datasets:
-          type: integer
-          example: 1420
-        avg_quality_score:
-          type: integer
-          example: 74
-        datasets_below_threshold:
-          type: integer
-          example: 87
-        departments_below_threshold:
-          type: array
-          items:
-            type: string
-          example: ["Marketing", "Legal"]
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
-
-    MetricsAttr:
-      type: object
-      properties:
-        quality_threshold:
-          type: integer
-          description: Minimum acceptable quality score
-          example: 70
-        alert_recipients:
-          type: array
-          items:
-            type: string
-            format: email
-          example: ["governance@example.com"]
-        collection_schedule:
-          type: string
-          description: Cron expression for metrics collection
-          example: "0 6 * * *"
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
-
-    MetricsAttrUpdate:
-      type: object
-      properties:
-        quality_threshold:
-          type: integer
-          example: 75
-        alert_recipients:
-          type: array
-          items:
-            type: string
-            format: email
-        collection_schedule:
-          type: string
-          example: "0 5 * * *"
-
-    MetricsEvent:
-      type: object
-      properties:
-        event_id:
-          type: string
-          example: "evt-met-001"
-        total_datasets:
-          type: integer
-          example: 1420
-        avg_quality_score:
-          type: integer
-          example: 74
-        occurred_at:
-          $ref: "#/components/schemas/Timestamp"
-
-    DepartmentMetrics:
-      type: object
-      properties:
-        department_id:
-          type: string
-          example: "dept-marketing"
-        department_name:
-          type: string
-          example: "Marketing"
-        total_datasets:
-          type: integer
-          example: 94
-        avg_quality_score:
-          type: integer
-          example: 65
-        datasets_below_threshold:
-          type: integer
-          example: 21
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
-
-    DepartmentMetricsEvent:
-      type: object
-      properties:
-        event_id:
-          type: string
-          example: "evt-dmt-001"
-        department_id:
-          type: string
-          example: "dept-marketing"
-        avg_quality_score:
-          type: integer
-          example: 63
-        occurred_at:
-          $ref: "#/components/schemas/Timestamp"
-
-    # Overview (DG)
-
-    Overview:
-      type: object
-      properties:
-        total_datasets:
-          type: integer
-          example: 1420
-        medallion_layers:
-          type: object
-          properties:
-            bronze:
-              type: integer
-              example: 540
-            silver:
-              type: integer
-              example: 620
-            gold:
-              type: integer
-              example: 260
-        graph_nodes:
-          type: integer
-          example: 1420
-        graph_edges:
-          type: integer
-          example: 3180
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
-
-    OverviewAttr:
-      type: object
-      properties:
-        layout:
-          type: string
-          enum: [graph, medallion, hybrid]
-          example: "hybrid"
-        coloring_field:
-          type: string
-          enum: [quality_score, medallion_layer, department]
-          example: "quality_score"
+          nullable: true
         filters:
           type: object
-          properties:
-            departments:
-              type: array
-              items:
-                type: string
-              example: ["Engineering", "Marketing"]
-            platforms:
-              type: array
-              items:
-                type: string
-              example: ["mysql", "snowflake"]
-        resp_time:
-          $ref: "#/components/schemas/Timestamp"
+          additionalProperties: true
 
-    OverviewAttrUpdate:
+    MetricResultItem:
       type: object
+      required: [result_id, metric_id, value, occurred_at]
       properties:
-        layout:
+        result_id:
           type: string
-          enum: [graph, medallion, hybrid]
-        coloring_field:
+          format: uuid
+        metric_id:
           type: string
-          enum: [quality_score, medallion_layer, department]
-        filters:
-          type: object
-          properties:
-            departments:
-              type: array
-              items:
-                type: string
-            platforms:
-              type: array
-              items:
-                type: string
+        value:
+          type: number
+          format: float
+          description: Numeric measurement value
+        alarm:
+          type: boolean
+          description: True if the value triggered the alarm threshold
+        occurred_at:
+          type: string
+          format: date-time
+        run_id:
+          type: string
+          format: uuid
 
-    BlindSpotDataset:
+    MetricResultList:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMeta"
+        - type: object
+          required: [metric_results]
+          properties:
+            metric_results:
+              type: array
+              items:
+                $ref: "#/components/schemas/MetricResultItem"
+
+    # ------------------------------------------------------------------
+    # DG — Overview
+    # ------------------------------------------------------------------
+
+    DgOverviewNode:
       type: object
+      required: [urn, name, medallion_layer]
       properties:
-        dataset_urn:
+        urn:
           type: string
-          example: "urn:li:dataset:(urn:li:dataPlatform:mysql,prod.legacy_audit,PROD)"
         name:
           type: string
-          example: "prod.legacy_audit"
-        platform:
+        medallion_layer:
           type: string
-          example: "mysql"
-        missing:
+          enum: [bronze, silver, gold, unknown]
+        quality_score:
+          type: integer
+          nullable: true
+        domain:
+          type: string
+          nullable: true
+
+    DgOverviewEdge:
+      type: object
+      required: [source_urn, target_urn, relationship]
+      properties:
+        source_urn:
+          type: string
+        target_urn:
+          type: string
+        relationship:
+          type: string
+          enum: [upstream, downstream, related]
+
+    DgOverview:
+      allOf:
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [nodes, edges, medallion_coverage]
+          properties:
+            nodes:
+              type: array
+              items:
+                $ref: "#/components/schemas/DgOverviewNode"
+            edges:
+              type: array
+              items:
+                $ref: "#/components/schemas/DgOverviewEdge"
+            medallion_coverage:
+              type: object
+              description: Dataset count per medallion layer
+              properties:
+                bronze:
+                  type: integer
+                silver:
+                  type: integer
+                gold:
+                  type: integer
+                unknown:
+                  type: integer
+            blind_spots:
+              type: array
+              items:
+                type: string
+              description: Urns of datasets with no ownership or description
+
+    DgOverviewAttr:
+      allOf:
+        - $ref: "#/components/schemas/RespTimeMixin"
+        - type: object
+          required: [layout, coloring]
+          properties:
+            layout:
+              type: string
+              enum: [force_directed, hierarchical, radial]
+              default: force_directed
+            coloring:
+              type: string
+              enum: [quality_score, medallion_layer, domain]
+              default: quality_score
+            filters:
+              type: object
+              description: Active filter selections (e.g. domain, medallion layer)
+              additionalProperties: true
+
+    DgOverviewAttrPatch:
+      type: object
+      properties:
+        layout:
+          type: string
+          enum: [force_directed, hierarchical, radial]
+        coloring:
+          type: string
+          enum: [quality_score, medallion_layer, domain]
+        filters:
+          type: object
+          additionalProperties: true
+
+    # ------------------------------------------------------------------
+    # Hub pass-through
+    # ------------------------------------------------------------------
+
+    GraphQLRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          description: GraphQL query string
+        variables:
+          type: object
+          additionalProperties: true
+          nullable: true
+        operation_name:
+          type: string
+          nullable: true
+
+    GraphQLResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          additionalProperties: true
+          nullable: true
+        errors:
           type: array
+          nullable: true
           items:
-            type: string
-          example: ["taxonomy", "quality_score"]
+            type: object
+            properties:
+              message:
+                type: string
+              locations:
+                type: array
+                items:
+                  type: object
+              path:
+                type: array
+                items: {}
+              extensions:
+                type: object
+                additionalProperties: true
