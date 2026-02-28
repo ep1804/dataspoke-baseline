@@ -88,9 +88,10 @@ claim_issue() {
     return 1
   fi
 
-  # Step 4: Remove prauto:ready, post claim comment
+  # Step 4: Remove prauto:ready, set assignee, post claim comment
   gh issue edit "$issue_number" -R "$PRAUTO_GITHUB_REPO" \
-    --remove-label "$PRAUTO_GITHUB_LABEL_READY" 2>/dev/null || true
+    --remove-label "$PRAUTO_GITHUB_LABEL_READY" \
+    --add-assignee "$PRAUTO_GITHUB_ACTOR" 2>/dev/null || true
 
   if ! comment_exists "issue" "$issue_number" "Claimed"; then
     gh issue comment "$issue_number" -R "$PRAUTO_GITHUB_REPO" \

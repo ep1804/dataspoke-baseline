@@ -129,6 +129,7 @@ ${commit_log}
     --title "prauto: ${issue_title}" \
     --body "$pr_body" \
     --assignee "${PRAUTO_GITHUB_ACTOR}" \
+    --label "${PRAUTO_GITHUB_LABEL_REVIEW}" \
     --reviewer "${repo_owner}" 2>/dev/null || error "Failed to create PR for ${branch}."
 
   info "PR created for issue #${issue_number}."
@@ -142,16 +143,23 @@ find_actionable_prs() {
   prs_json=$(gh pr list \
     -R "$PRAUTO_GITHUB_REPO" \
     --state open \
-    --json number,headRefName,reviews \
+    --json number,headRefName,reviews,labels,assignees \
     --limit 50 2>/dev/null) || {
     warn "Failed to list PRs."
     return 1
   }
 
-  # Filter PRs on prauto branches
+  # Filter PRs on prauto branches that have prauto:review label and are assigned to this worker
   local prauto_prs
-  prauto_prs=$(echo "$prs_json" | jq -r --arg prefix "$PRAUTO_BRANCH_PREFIX" '
-    [.[] | select(.headRefName | startswith($prefix))]
+  prauto_prs=$(echo "$prs_json" | jq -r \
+    --arg prefix "$PRAUTO_BRANCH_PREFIX" \
+    --arg review_label "$PRAUTO_GITHUB_LABEL_REVIEW" \
+    --arg actor "$PRAUTO_GITHUB_ACTOR" '
+    [.[] | select(
+      (.headRefName | startswith($prefix)) and
+      (.labels | map(.name) | index($review_label) != null) and
+      (.assignees | map(.login) | index($actor) != null)
+    )]
     | sort_by(.number)
   ')
 
@@ -220,14 +228,21 @@ find_mergeable_prs() {
   local repo_owner="${PRAUTO_GITHUB_REPO%%/*}"
   local prs_json
   prs_json=$(gh pr list -R "$PRAUTO_GITHUB_REPO" --state open \
-    --json number,headRefName,title,body --limit 50 2>/dev/null) || {
+    --json number,headRefName,title,body,labels,assignees --limit 50 2>/dev/null) || {
     warn "Failed to list PRs for merge check."
     return 1
   }
 
   local pr_numbers
-  pr_numbers=$(echo "$prs_json" | jq -r --arg prefix "$PRAUTO_BRANCH_PREFIX" '
-    [.[] | select(.headRefName | startswith($prefix))]
+  pr_numbers=$(echo "$prs_json" | jq -r \
+    --arg prefix "$PRAUTO_BRANCH_PREFIX" \
+    --arg review_label "$PRAUTO_GITHUB_LABEL_REVIEW" \
+    --arg actor "$PRAUTO_GITHUB_ACTOR" '
+    [.[] | select(
+      (.headRefName | startswith($prefix)) and
+      (.labels | map(.name) | index($review_label) != null) and
+      (.assignees | map(.login) | index($actor) != null)
+    )]
     | sort_by(.number) | .[].number')
   [[ -z "$pr_numbers" ]] && return 1
 
@@ -269,10 +284,11 @@ find_mergeable_prs() {
   return 1
 }
 
-# Squash all commits on the PR branch into one and merge via GitHub.
+# Squash all commits on the PR branch into one, force-push, and mark as done.
+# Does NOT merge the PR or close the issue — leaves that for the human.
 # Must be called from inside the worktree (checkout_branch_worktree already ran).
-# Usage: squash_and_merge_pr <pr_number> <pr_branch> <pr_title> <pr_body> <issue_number>
-squash_and_merge_pr() {
+# Usage: squash_and_finalize_pr <pr_number> <pr_branch> <pr_title> <pr_body> <issue_number>
+squash_and_finalize_pr() {
   local pr_number="$1"
   local pr_branch="$2"
   local pr_title="$3"
@@ -313,7 +329,7 @@ squash_and_merge_pr() {
   # Build commit message
   local msg_file
   msg_file=$(mktemp /tmp/prauto-squash-msg-XXXXXX)
-  printf '%s\n\nCloses #%s\n' "$pr_title" "$issue_number" > "$msg_file"
+  printf '%s\n\nRefs #%s\n' "$pr_title" "$issue_number" > "$msg_file"
 
   local author_arg="${PRAUTO_GIT_AUTHOR_NAME} <${PRAUTO_GIT_AUTHOR_EMAIL}>"
 
@@ -357,13 +373,29 @@ squash_and_merge_pr() {
   fi
   info "PR #${pr_number}: force-pushed squashed commit."
 
-  # Merge via gh CLI (uses GH_TOKEN exported by heartbeat.sh).
-  # --squash: repo policy disallows merge commits and rebase merges.
-  if ! gh pr merge "$pr_number" -R "$PRAUTO_GITHUB_REPO" --squash --delete-branch 2>/dev/null; then
-    warn "PR #${pr_number}: gh pr merge failed (CI checks may need to re-run after force push)."
-  else
-    info "PR #${pr_number}: merged and branch deleted."
-  fi
+  # Extract the title of the final single commit (the squashed commit message first line).
+  local final_commit_title
+  final_commit_title=$(git log -1 --format='%s' HEAD 2>/dev/null || echo "$pr_title")
+
+  # Update PR title to match the final squashed commit title.
+  gh pr edit "$pr_number" -R "$PRAUTO_GITHUB_REPO" \
+    --title "$final_commit_title" 2>/dev/null || \
+    warn "PR #${pr_number}: failed to update PR title."
+  info "PR #${pr_number}: updated title to '${final_commit_title}'."
+
+  # Set prauto:done label on PR (remove prauto:review).
+  gh pr edit "$pr_number" -R "$PRAUTO_GITHUB_REPO" \
+    --remove-label "$PRAUTO_GITHUB_LABEL_REVIEW" \
+    --add-label "$PRAUTO_GITHUB_LABEL_DONE" 2>/dev/null || \
+    warn "PR #${pr_number}: failed to update PR labels."
+
+  # Set prauto:done label on the linked issue (remove prauto:review).
+  gh issue edit "$issue_number" -R "$PRAUTO_GITHUB_REPO" \
+    --remove-label "$PRAUTO_GITHUB_LABEL_REVIEW" \
+    --add-label "$PRAUTO_GITHUB_LABEL_DONE" 2>/dev/null || \
+    warn "Issue #${issue_number}: failed to update issue labels."
+
+  info "PR #${pr_number}: marked as prauto:done (PR and issue #${issue_number}). NOT merged."
 }
 
 # Reply to reviewer comments on a PR with idempotency.

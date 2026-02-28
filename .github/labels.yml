@@ -14,3 +14,7 @@
 - name: "prauto:failed"
   color: "D93F0B"
   description: "PRAUTO abandoned after max retries"
+
+- name: "prauto:done"
+  color: "6F42C1"
+  description: "PRAUTO work completed — squash-pushed and ready to merge"

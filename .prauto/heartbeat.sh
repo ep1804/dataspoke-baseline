@@ -129,6 +129,14 @@ if has_active_job; then
   info "Found active job. Attempting resume..."
   load_job
 
+  # Verify issue assignee matches this worker (prauto:wip ownership check)
+  issue_assignee=$(gh issue view "$JOB_ISSUE_NUMBER" -R "$PRAUTO_GITHUB_REPO" \
+    --json assignees --jq '.assignees[].login' 2>/dev/null || echo "")
+  if ! echo "$issue_assignee" | grep -q "^${PRAUTO_GITHUB_ACTOR}$"; then
+    warn "Issue #${JOB_ISSUE_NUMBER} assignee (${issue_assignee}) does not match this worker (${PRAUTO_GITHUB_ACTOR}). Skipping."
+    exit 0
+  fi
+
   # Check max retries
   if [[ "$JOB_RETRIES" -ge "$PRAUTO_MAX_RETRIES_PER_JOB" ]]; then
     warn "Job for issue #${JOB_ISSUE_NUMBER} exceeded max retries (${JOB_RETRIES}/${PRAUTO_MAX_RETRIES_PER_JOB})."
@@ -201,21 +209,21 @@ if has_active_job; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 5.5: Squash-merge approved and merge-ready PRs
+# Step 5.5: Squash and finalize approved PRs (do NOT merge)
 # ---------------------------------------------------------------------------
 if find_mergeable_prs; then
-  info "Squash-merging approved PR #${MERGEABLE_PR_NUMBER} (${MERGEABLE_PR_BRANCH})..."
+  info "Squash-finalizing approved PR #${MERGEABLE_PR_NUMBER} (${MERGEABLE_PR_BRANCH})..."
   checkout_branch_worktree "$MERGEABLE_PR_BRANCH"
   cd "$WORKTREE_DIR"
-  if squash_and_merge_pr \
+  if squash_and_finalize_pr \
       "$MERGEABLE_PR_NUMBER" \
       "$MERGEABLE_PR_BRANCH" \
       "$MERGEABLE_PR_TITLE" \
       "$MERGEABLE_PR_BODY" \
       "$MERGEABLE_PR_ISSUE"; then
-    info "Squash-merge complete. Exiting."
+    info "Squash-finalize complete. Exiting."
   else
-    warn "Squash-merge failed for PR #${MERGEABLE_PR_NUMBER}. Exiting."
+    warn "Squash-finalize failed for PR #${MERGEABLE_PR_NUMBER}. Exiting."
   fi
   exit 0
 fi
