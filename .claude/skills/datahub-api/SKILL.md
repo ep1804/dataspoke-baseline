@@ -7,6 +7,17 @@ allowed-tools: Read, Grep, Glob, Bash(python3 *), Bash(pip3 *), Bash(curl *)
 
 ## Phase 1 — Understand the Task & Select Mode
 
+**Step 0 — Check reference materials:**
+
+```bash
+[ -d "ref/github/datahub" ] && echo "ref present" || echo "ref MISSING"
+```
+
+If `ref/github/datahub` is **missing**, stop immediately and tell the user:
+
+> `ref/github/datahub` is not present. Run `/dataspoke-ref-setup-all` to download
+> the DataHub v1.4.0 source (shallow clone, ~2–5 min). Retry this task after it completes.
+
 **Step 1 — Select operating mode:**
 
 | If the task looks like... | Mode |

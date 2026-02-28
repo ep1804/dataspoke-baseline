@@ -61,6 +61,7 @@ For spec authoring, use `/dataspoke-plan-write` or `/plan-doc` directly.
 ## Claude Code Configuration
 
 **Skills**: `kubectl`, `monitor-k8s`, `plan-doc`, `datahub-api`
+_(Note: `datahub-api` requires `ref/github/datahub/` — run `/dataspoke-ref-setup-all` once if not present.)_
 **Commands**: `dataspoke-dev-env-install`, `dataspoke-dev-env-uninstall`, `dataspoke-ref-setup-all`, `dataspoke-plan-write`
 **Subagents**: `api-spec`, `backend`, `frontend`, `k8s-helm`
 **Hook**: `auto-format.sh` — auto-formats Python (ruff) and TypeScript (prettier) after edits
