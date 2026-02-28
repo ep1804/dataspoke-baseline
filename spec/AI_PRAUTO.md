@@ -81,8 +81,9 @@ Docker, Kubernetes, and cloud runner deployments are out of scope for v1 and wil
 │   ├── current-job.json        # Active job metadata
 │   ├── heartbeat.lock          # PID-based lock file
 │   ├── heartbeat.log           # Cron output log
+│   ├── .system-append-rendered.md  # Rendered system prompt (substituted at runtime)
 │   ├── history/                # Completed job summaries (YYYYMMDD_I-NNN.json)
-│   └── sessions/               # Claude session outputs for potential resume
+│   └── sessions/               # Claude session outputs (analysis-I-NNN.txt, impl-I-NNN.json, review-I-NNN.json)
 └── README.md                   # [COMMITTED] Setup and usage instructions
 ```
 
@@ -139,12 +140,14 @@ PRAUTO_HEARTBEAT_INTERVAL_MINUTES=30
 # PRAUTO_CLAUDE_MAX_BUDGET_ANALYSIS="0.50"
 # PRAUTO_CLAUDE_MAX_BUDGET_IMPLEMENTATION="2.00"
 
-# Secrets
-ANTHROPIC_API_KEY="sk-ant-..."
-GH_TOKEN="ghp_..."
+# Secrets (optional — leave empty to use system auth / keyring credentials)
+ANTHROPIC_API_KEY=""
+GH_TOKEN=""
 ```
 
-The `GH_TOKEN` is a fine-grained personal access token with these permissions on the target repository:
+If `ANTHROPIC_API_KEY` is empty, `claude` falls back to system credentials (e.g., keyring or `claude auth login`). If `GH_TOKEN` is empty, `gh` uses its own authenticated session. Secrets are optional — a bare developer machine with both CLIs already authenticated needs no values here.
+
+The `GH_TOKEN`, when provided, is a fine-grained personal access token with these permissions on the target repository:
 
 | Permission | Access | Used for |
 |------------|--------|----------|
@@ -186,7 +189,7 @@ crontab trigger
     │       └── if completed or no job → continue
     │
     ├── 6. Check open PRs ────────── (lib/git-ops.sh)
-    │       ├── if PR has reviewer comments → address feedback, push, reply → exit
+    │       ├── if PR has reviewer comments → checkout worktree, run pr-review, push, complete → exit
     │       └── if no actionable comments → continue
     │
     ├── 7. Find eligible issue ───── (lib/issues.sh)
@@ -194,22 +197,24 @@ crontab trigger
     │
     ├── 8. Claim issue ───────────── (add prauto:wip label, comment)
     │
-    ├── 9. Create branch ─────────── (lib/git-ops.sh)
+    ├── 9. Create branch + worktree  (lib/git-ops.sh → /tmp/prauto-I-{N}, then cd into it)
     │
-    ├── 10. Phase 1: Analysis ────── (lib/claude.sh, read-only)
+    ├── 10. Phase 1: Analysis ────── (lib/claude.sh, read-only, runs inside worktree)
     │
-    ├── 11. Phase 2: Implementation  (lib/claude.sh, read+write)
+    ├── 11. Phase 2: Implementation  (lib/claude.sh, read+write, runs inside worktree)
     │
     ├── 12. Create/update PR ──────── (lib/git-ops.sh)
     │
     ├── 13. Complete job ──────────── (lib/state.sh)
     │
-    ├── 14. Restore secrets ──────── (move config.local.env back)
-    │
-    └── 15. Release lock
+    └── 14-15. Restore secrets + release lock  (EXIT trap: cleanup())
 ```
 
 **One job per heartbeat**: Steps 5 and 6 exit after completing their work. A single heartbeat never runs more than one Claude session to keep resource usage predictable and simplify state management.
+
+**Worktree isolation**: Every Claude session (analysis, implementation, pr-review) runs inside a dedicated git worktree at `/tmp/prauto-I-{N}` (new issue) or `/tmp/prauto-{branch}` (PR review). The main repo directory is never the working directory during Claude invocations. The `cleanup()` EXIT trap removes the worktree unconditionally on exit.
+
+**Secrets handling**: `ANTHROPIC_API_KEY` and `GH_TOKEN` are exported only if non-empty; otherwise the respective CLIs fall back to their own system authentication. Secrets are secured before Claude runs by moving `config.local.env` to `/tmp/.prauto-secrets-$$` and restoring it in the EXIT trap.
 
 ### Bash conventions
 
@@ -429,7 +434,7 @@ The analysis and implementation phases use the same invocation structure with ph
 # Implementation phase: PHASE_MAX_TURNS=$PRAUTO_CLAUDE_MAX_TURNS_IMPLEMENTATION, PHASE_BUDGET=$PRAUTO_CLAUDE_MAX_BUDGET_IMPLEMENTATION
 
 claude -p "<prompt>" \
-  --append-system-prompt-file ".prauto/prompts/system-append.md" \
+  --append-system-prompt-file ".prauto/state/.system-append-rendered.md" \
   --model "$PRAUTO_CLAUDE_MODEL" \
   --output-format json \
   --max-turns "$PHASE_MAX_TURNS" \
@@ -483,6 +488,18 @@ WebFetch, WebSearch
 
 In non-interactive (`-p`) mode, Claude Code cannot prompt for tool approval. The `--dangerously-skip-permissions` flag is required. However, the combination of `--allowedTools` (explicit whitelist) and `--disallowedTools` (explicit denylist) ensures Claude can only use approved tools. This is the unattended equivalent of the project's `settings.json` permission model.
 
+### Session files
+
+Each Claude phase saves its output to `state/sessions/`:
+
+| Phase | File | Format |
+|-------|------|--------|
+| Analysis | `analysis-I-{N}.txt` | Plain text (analysis output) |
+| Implementation | `impl-I-{N}.json` | JSON (full Claude output) |
+| PR review | `review-I-{N}.json` | JSON (full Claude output) |
+
+The session ID (`session_id` field from JSON output) is extracted and stored in `current-job.json` for resume support.
+
 ### Session resumption
 
 When a job is interrupted mid-implementation:
@@ -516,10 +533,20 @@ Example: issue #42 produces branch `prauto/I-42`.
 
 ### Branch creation
 
+Branches are created as isolated git worktrees, not in the main repo directory. `create_branch` in `lib/git-ops.sh` sets both `BRANCH_NAME` and `WORKTREE_DIR`:
+
 ```bash
-git fetch origin "$PRAUTO_BASE_BRANCH"
-git checkout -b "prauto/I-${ISSUE_NUMBER}" "origin/${PRAUTO_BASE_BRANCH}"
+BRANCH_NAME="prauto/I-${ISSUE_NUMBER}"
+WORKTREE_DIR="/tmp/prauto-I-${ISSUE_NUMBER}"
+
+git fetch origin
+# New branch:
+git worktree add -b "$BRANCH_NAME" "$WORKTREE_DIR" "origin/${PRAUTO_BASE_BRANCH}"
+# Existing branch (retry scenario):
+git worktree add "$WORKTREE_DIR" "$BRANCH_NAME"
 ```
+
+After `create_branch`, `heartbeat.sh` immediately `cd`s into `$WORKTREE_DIR` so all subsequent git and Claude operations run there. The EXIT trap (`cleanup()`) removes the worktree via `git worktree remove --force` on exit.
 
 ### Push and PR creation
 
@@ -564,19 +591,17 @@ Generated by `prauto({worker_id})` using Claude Code CLI.
 
 ### PR review handling
 
-Heartbeat step 6 scans for open PRs on branches matching `prauto/I-*` owned by this worker:
+Heartbeat step 6 scans for open PRs on branches matching the `prauto/` prefix:
 
-1. List open PRs via `gh pr list --author "$PRAUTO_GIT_AUTHOR_NAME" --json number,headRefName,comments,reviews`
-2. For each PR, check for unaddressed reviewer comments (change requests posted after the last prauto reply, **excluding** comment IDs already in `replied_comment_ids`)
+1. List all open PRs via `gh pr list --state open --json number,headRefName,reviews --limit 50`, then filter client-side to entries whose `headRefName` starts with `PRAUTO_BRANCH_PREFIX` (`prauto/`), sorted by number ascending.
+2. For each candidate, fetch PR review comments via `gh api repos/{repo}/pulls/{N}/comments` and identify comments not authored by this worker (those not prefixed with `prauto({PRAUTO_WORKER_ID}):`). A PR is actionable if it has such unaddressed comments **and** at least one `CHANGES_REQUESTED` or `COMMENTED` review.
 3. If no PR has actionable feedback: continue to step 7 (find new issue)
 4. If a PR has actionable feedback (take the oldest PR first):
    a. Create `current-job.json` with `"source": "pr-review"`, `"phase": "pr-review"`, the linked issue number, existing branch name, and `"replied_comment_ids": []`
-   b. Check out the existing PR branch
-   c. Run the `pr-review` phase (same tool whitelist as implementation) with reviewer comments as context
-   d. Push additional commits to the PR branch
-   e. For each comment to reply to: append the comment ID to `replied_comment_ids` in `current-job.json` **before** posting the reply (see [Reply Tracking](#reply-tracking))
-   f. Reply to each addressed comment confirming the change (with idempotency check — see [Comment Idempotency](#comment-idempotency))
-   g. Complete the job (move to history) and **exit the heartbeat**
+   b. Create a worktree for the existing PR branch at `/tmp/prauto-{branch}` via `checkout_branch_worktree`, then `cd` into it
+   c. Run the `pr-review` phase (same tool whitelist as implementation) with reviewer comments as context; save session output to `state/sessions/review-I-{N}.json`
+   d. Push additional commits to the PR branch; call `create_or_update_pr` to add a commit-log comment to the existing PR
+   e. Complete the job (move to history) and **exit the heartbeat**
 
 The `pr-review` phase uses `PRAUTO_CLAUDE_MAX_TURNS_IMPLEMENTATION` and the implementation tool whitelist, since it performs the same kind of work (writing code, running tests, committing).
 
@@ -586,7 +611,7 @@ The `pr-review` phase uses `PRAUTO_CLAUDE_MAX_TURNS_IMPLEMENTATION` and the impl
 
 ### `prompts/system-append.md` — Worker identity
 
-Appended to Claude Code's default system prompt via `--append-system-prompt-file`. This preserves all built-in capabilities while adding prauto-specific constraints.
+Contains `{PRAUTO_WORKER_ID}`, `{PRAUTO_GIT_AUTHOR_NAME}`, and `{PRAUTO_GIT_AUTHOR_EMAIL}` placeholders. At runtime `prepare_system_prompt()` in `lib/claude.sh` substitutes these variables and writes the result to `state/.system-append-rendered.md`. That rendered file is what is passed to `--append-system-prompt-file`. This preserves all built-in capabilities while adding prauto-specific constraints.
 
 ```markdown
 ## Prauto Worker Identity
@@ -705,21 +730,9 @@ fi
 
 ### Reply tracking
 
-The `replied_comment_ids` array in `current-job.json` tracks which PR review comments have already been replied to. This prevents duplicate replies when a heartbeat is interrupted and resumed.
+The `replied_comment_ids` array in `current-job.json` is initialized to `[]` on every new job and is loaded by `load_job`. The helper `add_replied_comment_id` in `lib/state.sh` and `reply_to_comments` in `lib/git-ops.sh` are defined for per-comment reply tracking, but **the PR review flow in the current implementation does not post individual replies to reviewer comments**. After addressing feedback via Claude, prauto pushes commits and calls `create_or_update_pr`, which adds a commit-log comment to the PR body — this is the only reply mechanism currently wired in.
 
-Protocol for replying to a reviewer comment:
-
-1. Check if the comment ID is already in `replied_comment_ids` → if yes, skip
-2. Append the comment ID to `replied_comment_ids` and write `current-job.json` to disk
-3. Post the reply comment (with the idempotency check above as a second layer)
-
-Writing the ID **before** posting ensures that if the reply succeeds but the heartbeat crashes before the next step, the resume path will not re-reply. If the reply fails (network error), the ID is already recorded — but this is acceptable because the next heartbeat will see the comment was not actually posted (idempotency check fails to find a match) and will not skip it.
-
-To handle this edge case cleanly, the resume path should:
-
-1. Read `replied_comment_ids`
-2. For each ID, verify the reply was actually posted (via idempotency check)
-3. Re-post any replies where the ID is recorded but no matching comment exists
+The infrastructure (field, helpers) is in place for future fine-grained reply tracking.
 
 ### Optimistic claim locking
 
@@ -794,10 +807,11 @@ Separating "write code" from "push to remote" is a deliberate safety boundary. C
 
 The `Read` tool (whitelisted in both phases) can access any file by path. To prevent Claude from reading secrets, `heartbeat.sh` performs a **pre-invocation lockdown**:
 
-1. Source `config.local.env` into shell variables
-2. Move `config.local.env` to a temporary location outside the repo tree (e.g., `/tmp/.prauto-secrets-$$`)
-3. Invoke Claude (secrets are not on disk during the session)
-4. Restore `config.local.env` after Claude exits
+1. Source `config.local.env` into shell variables (so `ANTHROPIC_API_KEY`, `GH_TOKEN`, etc. are in the shell environment)
+2. Copy `config.local.env` to `/tmp/.prauto-secrets-$$`, then delete the original (`cp` + `rm`, equivalent to `mv`)
+3. Export `ANTHROPIC_API_KEY` and `GH_TOKEN` only if non-empty; otherwise unset them so CLIs use system auth
+4. Invoke Claude (the file is not on disk during the session)
+5. Restore: the EXIT trap (`cleanup()`) moves the temp file back to `config.local.env`
 
 Additionally, `.prauto/state/` is added to the denylist to prevent reading lock files or job history:
 
@@ -809,8 +823,8 @@ These patterns are appended to the `--disallowedTools` list in both phases.
 
 **Other secret paths**:
 
-- `ANTHROPIC_API_KEY` is set in the shell environment by `heartbeat.sh` before invoking `claude`; the key is not passed as a CLI argument
-- `GH_TOKEN` is used only by `gh` CLI calls in the bash scripts, not passed to Claude
+- `ANTHROPIC_API_KEY` is exported into the shell environment (not as a CLI arg); omitted entirely if empty
+- `GH_TOKEN` is used only by `gh` CLI calls in the bash scripts; omitted entirely if empty
 
 ---
 
