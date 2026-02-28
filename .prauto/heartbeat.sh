@@ -207,13 +207,16 @@ if find_mergeable_prs; then
   info "Squash-merging approved PR #${MERGEABLE_PR_NUMBER} (${MERGEABLE_PR_BRANCH})..."
   checkout_branch_worktree "$MERGEABLE_PR_BRANCH"
   cd "$WORKTREE_DIR"
-  squash_and_merge_pr \
-    "$MERGEABLE_PR_NUMBER" \
-    "$MERGEABLE_PR_BRANCH" \
-    "$MERGEABLE_PR_TITLE" \
-    "$MERGEABLE_PR_BODY" \
-    "$MERGEABLE_PR_ISSUE"
-  info "Squash-merge complete. Exiting."
+  if squash_and_merge_pr \
+      "$MERGEABLE_PR_NUMBER" \
+      "$MERGEABLE_PR_BRANCH" \
+      "$MERGEABLE_PR_TITLE" \
+      "$MERGEABLE_PR_BODY" \
+      "$MERGEABLE_PR_ISSUE"; then
+    info "Squash-merge complete. Exiting."
+  else
+    warn "Squash-merge failed for PR #${MERGEABLE_PR_NUMBER}. Exiting."
+  fi
   exit 0
 fi
 

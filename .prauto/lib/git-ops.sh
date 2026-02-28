@@ -287,47 +287,37 @@ squash_and_merge_pr() {
   export GIT_COMMITTER_NAME="$PRAUTO_GIT_AUTHOR_NAME"
   export GIT_COMMITTER_EMAIL="$PRAUTO_GIT_AUTHOR_EMAIL"
 
-  # Step 1: Verify at least one commit is authored by this worker
-  local authored_commits
-  authored_commits=$(git log "origin/${PRAUTO_BASE_BRANCH}..HEAD" \
-    --format="%ae" 2>/dev/null | grep -c "^${PRAUTO_GIT_AUTHOR_EMAIL}$" || true)
-  if [[ "$authored_commits" -eq 0 ]]; then
-    warn "PR #${pr_number}: no commits authored by ${PRAUTO_GIT_AUTHOR_EMAIL}. Skipping merge."
-    return 1
-  fi
-
-  # Step 2: Fetch base branch
+  # Fetch base branch
   git fetch origin "$PRAUTO_BASE_BRANCH" 2>/dev/null || {
     warn "PR #${pr_number}: git fetch failed."
     return 1
   }
 
-  # Step 3: Rebase onto base branch
+  # Rebase onto base branch
   if ! git rebase "origin/${PRAUTO_BASE_BRANCH}" 2>/dev/null; then
     warn "PR #${pr_number}: rebase onto origin/${PRAUTO_BASE_BRANCH} failed. Aborting."
     git rebase --abort 2>/dev/null || true
     return 1
   fi
 
-  # Step 4: Find merge base
+  # Find merge base and count commits to squash
   local merge_base
   merge_base=$(git merge-base HEAD "origin/${PRAUTO_BASE_BRANCH}" 2>/dev/null) || {
     warn "PR #${pr_number}: could not find merge base."
     return 1
   }
 
-  # Step 5: Count commits to squash
   local commit_count
   commit_count=$(git rev-list --count "${merge_base}..HEAD" 2>/dev/null || echo 0)
 
-  # Step 6: Build commit message
+  # Build commit message
   local msg_file
   msg_file=$(mktemp /tmp/prauto-squash-msg-XXXXXX)
   printf '%s\n\nCloses #%s\n' "$pr_title" "$issue_number" > "$msg_file"
 
   local author_arg="${PRAUTO_GIT_AUTHOR_NAME} <${PRAUTO_GIT_AUTHOR_EMAIL}>"
 
-  # Step 7/8: Squash (amend if single commit, reset+commit if multiple)
+  # Squash (amend if single commit, reset+commit if multiple)
   if [[ "$commit_count" -eq 1 ]]; then
     git commit --amend --author="$author_arg" --file="$msg_file" 2>/dev/null || {
       warn "PR #${pr_number}: git commit --amend failed."
@@ -348,20 +338,28 @@ squash_and_merge_pr() {
   fi
   rm -f "$msg_file"
 
-  # Step 9: Force-push using GH_TOKEN explicitly so the push authenticates as the
-  # prauto account rather than the system credential helper (which may be ep1804).
-  local git_push_args=()
+  # Force-push as the prauto account.
+  # If GH_TOKEN is set, push over HTTPS with the token embedded in the URL so the
+  # push authenticates as the prauto account regardless of the local remote protocol
+  # (SSH remotes would otherwise use the system SSH key and appear as ep1804).
   if [[ -n "${GH_TOKEN:-}" ]]; then
-    git_push_args+=("-c" "http.https://github.com/.extraHeader=Authorization: Bearer ${GH_TOKEN}")
+    git push --force-with-lease \
+      "https://x-access-token:${GH_TOKEN}@github.com/${PRAUTO_GITHUB_REPO}.git" \
+      "HEAD:refs/heads/${pr_branch}" 2>/dev/null || {
+      warn "PR #${pr_number}: force-push failed (remote may have changed). Skipping merge."
+      return 1
+    }
+  else
+    git push --force-with-lease origin "$pr_branch" 2>/dev/null || {
+      warn "PR #${pr_number}: force-push failed (remote may have changed). Skipping merge."
+      return 1
+    }
   fi
-  git "${git_push_args[@]}" push --force-with-lease origin "$pr_branch" 2>/dev/null || {
-    warn "PR #${pr_number}: force-push failed (remote may have changed). Skipping merge."
-    return 1
-  }
   info "PR #${pr_number}: force-pushed squashed commit."
 
-  # Step 10: Merge via gh CLI (uses GH_TOKEN exported by heartbeat.sh)
-  if ! gh pr merge "$pr_number" -R "$PRAUTO_GITHUB_REPO" --merge --delete-branch 2>/dev/null; then
+  # Merge via gh CLI (uses GH_TOKEN exported by heartbeat.sh).
+  # --squash: repo policy disallows merge commits and rebase merges.
+  if ! gh pr merge "$pr_number" -R "$PRAUTO_GITHUB_REPO" --squash --delete-branch 2>/dev/null; then
     warn "PR #${pr_number}: gh pr merge failed (CI checks may need to re-run after force push)."
   else
     info "PR #${pr_number}: merged and branch deleted."

@@ -634,7 +634,7 @@ Heartbeat step 5.5 runs **before** the PR review check, so closing approved work
    e. Build commit message in a temp file (see format below)
    f. If 1 commit: `git commit --amend --author=... --file=<msg>`; if N commits: `git reset --soft <merge_base>` then `git commit --author=... --file=<msg>`
    g. `git push --force-with-lease origin <branch>` — aborts if remote changed unexpectedly
-   h. `gh pr merge <number> --merge --delete-branch` — warns on failure (CI checks may re-run after force push)
+   h. `gh pr merge <number> --squash --delete-branch` — warns on failure (CI checks may re-run after force push)
 
 **Commit message format**:
 
