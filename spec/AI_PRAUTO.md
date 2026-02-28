@@ -84,6 +84,7 @@ Docker, Kubernetes, and cloud runner deployments are out of scope for v1 and wil
 │   ├── .system-append-rendered.md  # Rendered system prompt (substituted at runtime)
 │   ├── history/                # Completed job summaries (YYYYMMDD_I-NNN.json)
 │   └── sessions/               # Claude session outputs (analysis-I-NNN.txt, impl-I-NNN.json, review-I-NNN.json)
+├── worktrees/                  # [GITIGNORED] Git worktrees for active jobs
 └── README.md                   # [COMMITTED] Setup and usage instructions
 ```
 
@@ -94,6 +95,7 @@ Two lines appended to the repository root `.gitignore`:
 ```
 .prauto/config.local.env
 .prauto/state/
+.prauto/worktrees/
 ```
 
 ---
@@ -197,7 +199,7 @@ crontab trigger
     │
     ├── 8. Claim issue ───────────── (add prauto:wip label, comment)
     │
-    ├── 9. Create branch + worktree  (lib/git-ops.sh → /tmp/prauto-I-{N}, then cd into it)
+    ├── 9. Create branch + worktree  (lib/git-ops.sh → .prauto/worktrees/I-{N}, then cd into it)
     │
     ├── 10. Phase 1: Analysis ────── (lib/claude.sh, read-only, runs inside worktree)
     │
@@ -212,7 +214,7 @@ crontab trigger
 
 **One job per heartbeat**: Steps 5 and 6 exit after completing their work. A single heartbeat never runs more than one Claude session to keep resource usage predictable and simplify state management.
 
-**Worktree isolation**: Every Claude session (analysis, implementation, pr-review) runs inside a dedicated git worktree at `/tmp/prauto-I-{N}` (new issue) or `/tmp/prauto-{branch}` (PR review). The main repo directory is never the working directory during Claude invocations. The `cleanup()` EXIT trap removes the worktree unconditionally on exit.
+**Worktree isolation**: Every Claude session (analysis, implementation, pr-review) runs inside a dedicated git worktree at `.prauto/worktrees/I-{N}` (new issue) or `.prauto/worktrees/{branch}` (PR review). The main repo directory is never the working directory during Claude invocations. The `cleanup()` EXIT trap removes the worktree unconditionally on exit.
 
 **Secrets handling**: `ANTHROPIC_API_KEY` and `GH_TOKEN` are exported only if non-empty; otherwise the respective CLIs fall back to their own system authentication. Secrets are secured before Claude runs by moving `config.local.env` to `/tmp/.prauto-secrets-$$` and restoring it in the EXIT trap.
 
@@ -537,7 +539,7 @@ Branches are created as isolated git worktrees, not in the main repo directory. 
 
 ```bash
 BRANCH_NAME="prauto/I-${ISSUE_NUMBER}"
-WORKTREE_DIR="/tmp/prauto-I-${ISSUE_NUMBER}"
+WORKTREE_DIR=".prauto/worktrees/I-${ISSUE_NUMBER}"
 
 git fetch origin
 # New branch:
@@ -598,7 +600,7 @@ Heartbeat step 6 scans for open PRs on branches matching the `prauto/` prefix:
 3. If no PR has actionable feedback: continue to step 7 (find new issue)
 4. If a PR has actionable feedback (take the oldest PR first):
    a. Create `current-job.json` with `"source": "pr-review"`, `"phase": "pr-review"`, the linked issue number, existing branch name, and `"replied_comment_ids": []`
-   b. Create a worktree for the existing PR branch at `/tmp/prauto-{branch}` via `checkout_branch_worktree`, then `cd` into it
+   b. Create a worktree for the existing PR branch at `.prauto/worktrees/{branch}` via `checkout_branch_worktree`, then `cd` into it
    c. Run the `pr-review` phase (same tool whitelist as implementation) with reviewer comments as context; save session output to `state/sessions/review-I-{N}.json`
    d. Push additional commits to the PR branch; call `create_or_update_pr` to add a commit-log comment to the existing PR
    e. Complete the job (move to history) and **exit the heartbeat**

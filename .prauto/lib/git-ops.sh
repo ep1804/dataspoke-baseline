@@ -9,7 +9,7 @@
 create_branch() {
   local issue_number="$1"
   BRANCH_NAME="${PRAUTO_BRANCH_PREFIX}I-${issue_number}"
-  WORKTREE_DIR="/tmp/prauto-I-${issue_number}"
+  WORKTREE_DIR="${PRAUTO_DIR}/worktrees/I-${issue_number}"
 
   info "Fetching from origin..."
   git fetch origin 2>/dev/null || warn "git fetch failed — continuing with local refs."
@@ -41,7 +41,7 @@ create_branch() {
 checkout_branch_worktree() {
   local branch="$1"
   local safe_name="${branch//\//-}"
-  WORKTREE_DIR="/tmp/prauto-${safe_name}"
+  WORKTREE_DIR="${PRAUTO_DIR}/worktrees/${safe_name}"
 
   info "Fetching origin/${branch}..."
   git fetch origin "$branch" 2>/dev/null || warn "git fetch failed for ${branch}."

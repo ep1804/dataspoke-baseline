@@ -4,3 +4,4 @@ helm-charts/dataspoke/charts/
 memory/
 .prauto/config.local.env
 .prauto/state/
+.prauto/worktrees/
