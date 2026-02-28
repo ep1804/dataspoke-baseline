@@ -1,0 +1,60 @@
+name: PRAUTO Task
+description: Create a task for the PRAUTO autonomous worker
+labels: ["prauto:ready"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue will be picked up by PRAUTO automatically.
+        Provide as much structured context as possible for better results.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What needs to be done?
+      placeholder: Clear description of the task or change needed
+    validations:
+      required: true
+
+  - type: textarea
+    id: spec-refs
+    attributes:
+      label: Spec references
+      description: Which spec files are relevant?
+      placeholder: |
+        e.g.
+        - spec/feature/API.md (section: Health Check)
+        - spec/ARCHITECTURE.md (section: Three-tier routing)
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: How do we know this is done?
+      placeholder: |
+        - [ ] Endpoint returns 200 with expected payload
+        - [ ] Unit tests pass
+        - [ ] Follows API design principles
+
+  - type: textarea
+    id: file-paths
+    attributes:
+      label: File paths (if known)
+      description: Files to create or modify
+      placeholder: |
+        e.g.
+        - src/api/routes/health.py (create)
+        - src/api/main.py (modify)
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: Estimated size of the change
+      options:
+        - small (single file, minor change)
+        - medium (few files, new feature)
+        - large (multiple files, cross-cutting)
+    validations:
+      required: true

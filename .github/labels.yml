@@ -1,0 +1,16 @@
+# PRAUTO lifecycle labels
+- name: "prauto:ready"
+  color: "0E8A16"
+  description: "Ready for PRAUTO to pick up"
+
+- name: "prauto:wip"
+  color: "FBCA04"
+  description: "PRAUTO is working on this issue"
+
+- name: "prauto:review"
+  color: "1D76DB"
+  description: "PRAUTO PR is ready for human review"
+
+- name: "prauto:failed"
+  color: "D93F0B"
+  description: "PRAUTO abandoned after max retries"
