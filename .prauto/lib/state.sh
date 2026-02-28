@@ -10,7 +10,7 @@ SESSIONS_DIR="${STATE_DIR}/sessions"
 
 # Ensure state directories exist.
 ensure_state_dirs() {
-  mkdir -p "$STATE_DIR" "$HISTORY_DIR" "$SESSIONS_DIR"
+  mkdir -p "$STATE_DIR" "$HISTORY_DIR" "$SESSIONS_DIR" "${PRAUTO_DIR}/worktrees"
 }
 
 # Acquire PID-based lock. Returns 0 on success, 1 if already locked.
