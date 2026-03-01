@@ -104,6 +104,14 @@ Each heartbeat performs at most one job:
 8. Runs Phase 2: Implementation (read+write Claude session)
 9. Pushes branch and creates/updates PR
 
+## GitHub Label Setup
+
+Labels are defined in `.github/labels.yml`. Sync them to the repository once:
+
+```bash
+npx github-label-sync --access-token "$(gh auth token)" --labels .github/labels.yml <owner>/<repo>
+```
+
 ## Label Lifecycle
 
 ```

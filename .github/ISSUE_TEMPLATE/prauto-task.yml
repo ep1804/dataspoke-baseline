@@ -58,3 +58,9 @@ body:
         - large (multiple files, cross-cutting)
     validations:
       required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        #### Checklist
+        - If the issue is not fully specced out yet, remove the `prauto:ready` label and re-add it once it's ready.

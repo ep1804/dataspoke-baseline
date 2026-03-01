@@ -1,6 +1,6 @@
 # PRAUTO lifecycle labels
 - name: "prauto:ready"
-  color: "0E8A16"
+  color: "85E89D"
   description: "Ready for PRAUTO to pick up"
 
 - name: "prauto:wip"
@@ -9,12 +9,12 @@
 
 - name: "prauto:review"
   color: "1D76DB"
-  description: "PRAUTO PR is ready for human review"
+  description: "PRAUTO PR is in review"
 
 - name: "prauto:failed"
   color: "D93F0B"
   description: "PRAUTO abandoned after max retries"
 
 - name: "prauto:done"
-  color: "6F42C1"
-  description: "PRAUTO work completed — squash-pushed and ready to merge"
+  color: "006400"
+  description: "PRAUTO PR is approved and ready to be merged"
