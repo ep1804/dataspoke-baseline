@@ -5,22 +5,72 @@ body:
   - type: markdown
     attributes:
       value: |
-        This issue will be picked up by PRAUTO automatically.
-        Provide as much structured context as possible for better results.
+        - PRAUTO will pick up this issue automatically. Provide as much structured context as possible for better results.
+        - If the issue is not fully specced yet, remove the `prauto:ready` label and re-add it when ready.
+
+  - type: checkboxes
+    id: spec-scope
+    attributes:
+      label: Spec Scope
+      description: Which parts of the specification are affected?
+      options:
+        - label: Architecture or high-level spec (spec/)
+        - label: Cross-role feature spec (spec/feature/)
+        - label: Role-specific feature spec (spec/feature/spoke/)
+        - label: Tooling or CI/CD (PRAUTO, GitHub Actions, hooks, etc.)
+        - label: No spec change (implementation only)
+        - label: Other (documented in description)
+
+  - type: checkboxes
+    id: impl-scope
+    attributes:
+      label: Implementation Scope
+      description: Which parts of the implementation are affected?
+      options:
+        - label: OpenAPI spec (api/)
+        - label: Backend - API routes and services
+        - label: Backend - Temporal workflows
+        - label: Backend - DataHub integration, PostgreSQL models, Qdrant vector search
+        - label: Frontend UI
+        - label: Helm charts / Kubernetes manifests
+        - label: Dev environment
+        - label: Tooling or CI/CD (PRAUTO, GitHub Actions, hooks, etc.)
+        - label: No impl change (spec only)
+        - label: Other (documented in description)
+
+  - type: dropdown
+    id: change-size
+    attributes:
+      label: Change Size
+      description: Estimated size of the change, counting both spec and implementation
+      options:
+        - Minor (single file or a few files)
+        - Medium (multiple files across a few directories)
+        - Major (many files across multiple directories)
+    validations:
+      required: true
 
   - type: textarea
     id: description
     attributes:
       label: Description
       description: What needs to be done?
-      placeholder: Clear description of the task or change needed
+      value: |
+        ### Background
+        <!-- Why is this change needed? -->
+
+        ### Spec
+        <!-- Key requirements or constraints -->
+
+        ### TODO
+        - [ ]
     validations:
       required: true
 
   - type: textarea
     id: spec-refs
     attributes:
-      label: Spec references
+      label: Spec References
       description: Which spec files are relevant?
       placeholder: |
         e.g.
@@ -28,39 +78,21 @@ body:
         - spec/ARCHITECTURE.md (section: Three-tier routing)
 
   - type: textarea
-    id: acceptance-criteria
-    attributes:
-      label: Acceptance criteria
-      description: How do we know this is done?
-      placeholder: |
-        - [ ] Endpoint returns 200 with expected payload
-        - [ ] Unit tests pass
-        - [ ] Follows API design principles
-
-  - type: textarea
     id: file-paths
     attributes:
-      label: File paths (if known)
+      label: File Paths (if known)
       description: Files to create or modify
       placeholder: |
         e.g.
         - src/api/routes/health.py (create)
         - src/api/main.py (modify)
 
-  - type: dropdown
-    id: scope
+  - type: textarea
+    id: acceptance-criteria
     attributes:
-      label: Scope
-      description: Estimated size of the change
-      options:
-        - small (single file, minor change)
-        - medium (few files, new feature)
-        - large (multiple files, cross-cutting)
-    validations:
-      required: true
-
-  - type: markdown
-    attributes:
-      value: |
-        #### Checklist
-        - If the issue is not fully specced out yet, remove the `prauto:ready` label and re-add it once it's ready.
+      label: Acceptance Criteria
+      description: How do we know this is done?
+      placeholder: |
+        - [ ] Endpoint returns 200 with expected payload
+        - [ ] Unit tests pass
+        - [ ] Follows API design principles
