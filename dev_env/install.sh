@@ -72,6 +72,12 @@ info "Running dataspoke-example/install.sh..."
 bash "$SCRIPT_DIR/dataspoke-example/install.sh"
 
 # ---------------------------------------------------------------------------
+# Install lock service
+# ---------------------------------------------------------------------------
+info "Running dataspoke-lock/install.sh..."
+bash "$SCRIPT_DIR/dataspoke-lock/install.sh"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
@@ -87,6 +93,7 @@ echo ""
 echo "  DataHub (UI + GMS):         ./datahub-port-forward.sh"
 echo "  DataSpoke infra (PG, etc.): ./dataspoke-port-forward.sh"
 echo "  Example sources:            ./dummy-data-port-forward.sh"
+echo "  Lock service:               ./lock-port-forward.sh"
 echo ""
 echo "DataHub UI:  http://localhost:${DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_UI_PORT:-9002}"
 echo "DataHub GMS: http://localhost:${DATASPOKE_DEV_KUBE_DATAHUB_PORT_FORWARD_GMS_PORT:-9004}"
@@ -97,6 +104,7 @@ echo "  PostgreSQL: localhost:${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_POSTGR
 echo "  Redis:      localhost:${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_REDIS_PORT:-9202}"
 echo "  Qdrant:     localhost:${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_QDRANT_HTTP_PORT:-9203} (HTTP), :${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_QDRANT_GRPC_PORT:-9204} (gRPC)"
 echo "  Temporal:   localhost:${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_TEMPORAL_PORT:-9205}"
+echo "  Lock API:   localhost:${DATASPOKE_DEV_KUBE_DATASPOKE_PORT_FORWARD_DEV_ENV_LOCK_PORT:-9221}"
 echo ""
 echo "Run app services locally: source .env && make dev-up"
 echo ""

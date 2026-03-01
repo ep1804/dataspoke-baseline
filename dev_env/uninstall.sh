@@ -49,6 +49,16 @@ fi
 echo ""
 
 # ---------------------------------------------------------------------------
+# Uninstall lock service
+# ---------------------------------------------------------------------------
+if [[ -f "$SCRIPT_DIR/dataspoke-lock/uninstall.sh" ]]; then
+  info "Running dataspoke-lock/uninstall.sh..."
+  bash "$SCRIPT_DIR/dataspoke-lock/uninstall.sh"
+else
+  warn "dataspoke-lock/uninstall.sh not found — skipping."
+fi
+
+# ---------------------------------------------------------------------------
 # Uninstall dataspoke-example
 # ---------------------------------------------------------------------------
 if [[ -f "$SCRIPT_DIR/dataspoke-example/uninstall.sh" ]]; then
