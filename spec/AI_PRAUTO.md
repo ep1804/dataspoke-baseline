@@ -108,7 +108,7 @@ Settings here are shared across all prauto instances cloned from this repo. They
 
 ```bash
 # GitHub
-PRAUTO_GITHUB_REPO="ep1804/dataspoke-baseline"
+PRAUTO_GITHUB_REPO="selhorys/dataspoke-baseline"
 PRAUTO_GITHUB_LABEL_READY="prauto:ready"
 PRAUTO_GITHUB_LABEL_WIP="prauto:wip"
 PRAUTO_GITHUB_LABEL_REVIEW="prauto:review"

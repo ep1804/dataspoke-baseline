@@ -357,7 +357,7 @@ squash_and_finalize_pr() {
   # Force-push as the prauto account.
   # If GH_TOKEN is set, push over HTTPS with the token embedded in the URL so the
   # push authenticates as the prauto account regardless of the local remote protocol
-  # (SSH remotes would otherwise use the system SSH key and appear as ep1804).
+  # (SSH remotes would otherwise use the system SSH key).
   if [[ -n "${GH_TOKEN:-}" ]]; then
     git push --force-with-lease \
       "https://x-access-token:${GH_TOKEN}@github.com/${PRAUTO_GITHUB_REPO}.git" \
