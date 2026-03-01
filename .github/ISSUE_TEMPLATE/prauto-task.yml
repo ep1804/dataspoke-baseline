@@ -56,13 +56,13 @@ body:
       label: Description
       description: What needs to be done?
       value: |
-        ### Background
+        #### Background
         <!-- Why is this change needed? -->
 
-        ### Spec
+        #### Spec
         <!-- Key requirements or constraints -->
 
-        ### TODO
+        #### TODO
         - plan
         - change spec
         - implement spec
