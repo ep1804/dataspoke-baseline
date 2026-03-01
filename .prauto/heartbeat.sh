@@ -137,15 +137,18 @@ if has_active_job; then
     exit 0
   fi
 
-  # Check max retries
-  if [[ "$JOB_RETRIES" -ge "$PRAUTO_MAX_RETRIES_PER_JOB" ]]; then
-    warn "Job for issue #${JOB_ISSUE_NUMBER} exceeded max retries (${JOB_RETRIES}/${PRAUTO_MAX_RETRIES_PER_JOB})."
-    abandon_job
-    exit 0
-  fi
+  # For plan-approval phase, don't count retries (waiting is not a failure)
+  if [[ "$JOB_PHASE" != "plan-approval" ]]; then
+    # Check max retries
+    if [[ "$JOB_RETRIES" -ge "$PRAUTO_MAX_RETRIES_PER_JOB" ]]; then
+      warn "Job for issue #${JOB_ISSUE_NUMBER} exceeded max retries (${JOB_RETRIES}/${PRAUTO_MAX_RETRIES_PER_JOB})."
+      abandon_job
+      exit 0
+    fi
 
-  # Increment retries and update heartbeat timestamp
-  bump_heartbeat
+    # Increment retries and update heartbeat timestamp
+    bump_heartbeat
+  fi
   info "Resuming job for issue #${JOB_ISSUE_NUMBER} (phase: ${JOB_PHASE}, retry: ${JOB_RETRIES})."
 
   # Create a worktree for the job's branch
@@ -156,6 +159,18 @@ if has_active_job; then
     analysis)
       # Re-run analysis from scratch (cheap)
       run_analysis "$JOB_ISSUE_NUMBER" "$JOB_ISSUE_TITLE" ""
+      # Fetch issue body for change-size detection
+      local issue_body_raw
+      issue_body_raw=$(gh issue view "$JOB_ISSUE_NUMBER" -R "$PRAUTO_GITHUB_REPO" \
+        --json body --jq '.body // ""' 2>/dev/null || echo "")
+      local change_size
+      change_size=$(extract_change_size "$issue_body_raw")
+      post_plan_comment "$JOB_ISSUE_NUMBER" "$ANALYSIS_OUTPUT" "$change_size"
+      if [[ "$change_size" != "minor" ]]; then
+        update_job_field "phase" "plan-approval"
+        info "Plan posted for ${change_size} change. Waiting for approval. Exiting."
+        exit 0
+      fi
       update_job_field "phase" "implementation"
       update_job_field "session_id" ""
       # Fall through to implementation
@@ -170,6 +185,54 @@ if has_active_job; then
         --remove-label "$PRAUTO_GITHUB_LABEL_WIP" \
         --add-label "$PRAUTO_GITHUB_LABEL_REVIEW" 2>/dev/null || true
       complete_job
+      ;;
+    plan-approval)
+      COUNTER_PROPOSAL=""
+      local approval_status=0
+      check_plan_approval "$JOB_ISSUE_NUMBER" || approval_status=$?
+      if [[ "$approval_status" -eq 0 ]]; then
+        # Approved — proceed to implementation
+        info "Plan approved. Starting implementation..."
+        # Load the last analysis output
+        local analysis_file="${SESSIONS_DIR}/analysis-I-${JOB_ISSUE_NUMBER}.txt"
+        local saved_analysis=""
+        if [[ -f "$analysis_file" ]]; then
+          saved_analysis=$(cat "$analysis_file")
+        fi
+        update_job_field "phase" "implementation"
+        update_job_field "session_id" ""
+        run_implementation "$JOB_ISSUE_NUMBER" "$JOB_BRANCH" "$saved_analysis"
+        update_job_field "phase" "pr"
+        update_job_field "session_id" "$IMPL_SESSION_ID"
+        push_branch "$JOB_BRANCH"
+        create_or_update_pr "$JOB_ISSUE_NUMBER" "$JOB_ISSUE_TITLE" "$JOB_BRANCH"
+        gh issue edit "$JOB_ISSUE_NUMBER" -R "$PRAUTO_GITHUB_REPO" \
+          --remove-label "$PRAUTO_GITHUB_LABEL_WIP" \
+          --add-label "$PRAUTO_GITHUB_LABEL_REVIEW" 2>/dev/null || true
+        complete_job
+      elif [[ "$approval_status" -eq 2 ]]; then
+        # Counter-proposal — re-run analysis with feedback
+        info "Counter-proposal received. Re-running analysis..."
+        local issue_body_raw
+        issue_body_raw=$(gh issue view "$JOB_ISSUE_NUMBER" -R "$PRAUTO_GITHUB_REPO" \
+          --json body --jq '.body // ""' 2>/dev/null || echo "")
+        run_analysis "$JOB_ISSUE_NUMBER" "$JOB_ISSUE_TITLE" "$issue_body_raw" "$COUNTER_PROPOSAL"
+        local change_size
+        change_size=$(extract_change_size "$issue_body_raw")
+        # Increment plan revision
+        local current_rev
+        current_rev=$(jq -r '.plan_revision // 1' "$JOB_FILE")
+        local next_rev=$(( current_rev + 1 ))
+        update_job_field "plan_revision" "$next_rev"
+        post_plan_comment "$JOB_ISSUE_NUMBER" "$ANALYSIS_OUTPUT" "$change_size" "$next_rev"
+        # Stay in plan-approval phase, exit
+        info "Revised plan (rev ${next_rev}) posted. Waiting for approval. Exiting."
+        exit 0
+      else
+        # No response yet — just wait (don't bump retries)
+        info "Still waiting for plan approval on issue #${JOB_ISSUE_NUMBER}."
+        exit 0
+      fi
       ;;
     implementation)
       run_implementation "$JOB_ISSUE_NUMBER" "$JOB_BRANCH" "" "$JOB_SESSION_ID"
@@ -286,6 +349,20 @@ save_job "$FOUND_ISSUE_NUMBER" "$FOUND_ISSUE_TITLE" "$BRANCH_NAME" "issue" "anal
 # ---------------------------------------------------------------------------
 info "Starting analysis phase for issue #${FOUND_ISSUE_NUMBER}..."
 run_analysis "$FOUND_ISSUE_NUMBER" "$FOUND_ISSUE_TITLE" "$FOUND_ISSUE_BODY"
+
+# ---------------------------------------------------------------------------
+# Step 10.5: Post plan & check approval gate
+# ---------------------------------------------------------------------------
+CHANGE_SIZE=$(extract_change_size "$FOUND_ISSUE_BODY")
+info "Change size: ${CHANGE_SIZE}"
+post_plan_comment "$FOUND_ISSUE_NUMBER" "$ANALYSIS_OUTPUT" "$CHANGE_SIZE"
+
+if [[ "$CHANGE_SIZE" != "minor" ]]; then
+  update_job_field "phase" "plan-approval"
+  info "Plan posted for ${CHANGE_SIZE} change. Waiting for approval. Exiting."
+  exit 0
+fi
+
 update_job_field "phase" "implementation"
 
 # ---------------------------------------------------------------------------

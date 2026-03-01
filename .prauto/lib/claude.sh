@@ -102,17 +102,29 @@ invoke_claude() {
 }
 
 # Phase 1: Analysis (read-only).
+# Usage: run_analysis <issue_number> <issue_title> <issue_body> [counter_proposal]
 # Sets: ANALYSIS_OUTPUT, ANALYSIS_SESSION_ID
 run_analysis() {
   local issue_number="$1"
   local issue_title="$2"
   local issue_body="$3"
+  local counter_proposal="${4:-}"
 
   local prompt
   prompt=$(render_prompt "${PRAUTO_DIR}/prompts/issue-analysis.md" \
     "number=${issue_number}" \
     "title=${issue_title}" \
     "body=${issue_body}")
+
+  if [[ -n "$counter_proposal" ]]; then
+    prompt="${prompt}
+
+## Previous Plan Feedback
+
+The following counter-proposal was made. Incorporate this feedback into your revised plan:
+
+${counter_proposal}"
+  fi
 
   local budget="${PRAUTO_CLAUDE_MAX_BUDGET_ANALYSIS:-}"
 

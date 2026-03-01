@@ -102,3 +102,125 @@ claim_issue() {
   info "Claimed issue #${issue_number}."
   return 0
 }
+
+# Extract the change-size from the issue body.
+# GitHub renders the dropdown as: ### Change Size\n\nMedium (...)
+# Returns: "minor", "medium", or "major". Defaults to "medium" if unparseable.
+extract_change_size() {
+  local issue_body="$1"
+
+  local size_line
+  size_line=$(echo "$issue_body" | sed -n '/^### Change Size/,/^###/{/^### Change Size/d;/^###/d;/^$/d;p;}' | head -1)
+
+  case "$size_line" in
+    Minor*|minor*) echo "minor" ;;
+    Major*|major*) echo "major" ;;
+    *)             echo "medium" ;;
+  esac
+}
+
+# Post the analysis plan as an issue comment.
+# Usage: post_plan_comment <issue_number> <analysis_output> <change_size> [revision]
+# revision defaults to 1. Each revision uses a unique keyword for idempotency.
+post_plan_comment() {
+  local issue_number="$1"
+  local analysis_output="$2"
+  local change_size="$3"
+  local revision="${4:-1}"
+
+  local keyword="Plan"
+  if [[ "$revision" -gt 1 ]]; then
+    keyword="Plan (rev ${revision})"
+  fi
+
+  # Check for existing plan comment with this revision (idempotency)
+  if comment_exists "issue" "$issue_number" "$keyword"; then
+    info "Plan comment (${keyword}) already exists on issue #${issue_number}. Skipping."
+    return 0
+  fi
+
+  local footer
+  if [[ "$change_size" == "minor" ]]; then
+    footer='> This is a **Minor** change. Implementation will proceed automatically.'
+  else
+    local size_label
+    size_label="$(tr '[:lower:]' '[:upper:]' <<< "${change_size:0:1}")${change_size:1}"
+    footer="> This is a **${size_label}** change. Please review the plan above.
+> Reply with \`go ahead\` to approve, or post a counter-proposal."
+  fi
+
+  local body
+  body="prauto(${PRAUTO_WORKER_ID}): ${keyword}
+
+## Implementation Plan
+
+${analysis_output}
+
+---
+${footer}"
+
+  gh issue comment "$issue_number" -R "$PRAUTO_GITHUB_REPO" \
+    --body "$body" \
+    2>/dev/null || warn "Failed to post plan comment on issue #${issue_number}."
+
+  info "Plan comment posted on issue #${issue_number} (change_size=${change_size})."
+}
+
+# Check whether a plan has been approved on an issue.
+# Looks for comments after the plan comment.
+# Returns: 0 = approved ("go ahead"), 1 = no response yet, 2 = counter-proposal found.
+# Sets COUNTER_PROPOSAL on return 2.
+check_plan_approval() {
+  local issue_number="$1"
+
+  local plan_prefix="prauto(${PRAUTO_WORKER_ID}): Plan"
+
+  # Fetch all comments as JSON array
+  local comments_json
+  comments_json=$(gh issue view "$issue_number" -R "$PRAUTO_GITHUB_REPO" \
+    --json comments \
+    --jq '.comments' 2>/dev/null) || {
+    warn "Failed to fetch comments for issue #${issue_number}."
+    return 1
+  }
+
+  # Find the timestamp of the last plan comment
+  local plan_timestamp
+  plan_timestamp=$(echo "$comments_json" | jq -r --arg prefix "$plan_prefix" '
+    [.[] | select(.body | startswith($prefix))] | last | .createdAt // empty
+  ')
+
+  if [[ -z "$plan_timestamp" ]]; then
+    warn "No plan comment found on issue #${issue_number}."
+    return 1
+  fi
+
+  # Get non-prauto comments after the plan timestamp
+  local after_comments
+  after_comments=$(echo "$comments_json" | jq -r --arg ts "$plan_timestamp" '
+    [.[] | select(.createdAt > $ts) | select(.body | startswith("prauto(") | not)]
+  ')
+
+  local comment_count
+  comment_count=$(echo "$after_comments" | jq 'length')
+
+  if [[ "$comment_count" -eq 0 ]]; then
+    info "No response to plan yet on issue #${issue_number}."
+    return 1
+  fi
+
+  # Check each comment — look for "go ahead" first
+  local i body_trimmed
+  for (( i = 0; i < comment_count; i++ )); do
+    body_trimmed=$(echo "$after_comments" | jq -r ".[$i].body" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    if [[ "$body_trimmed" == "go ahead" ]]; then
+      info "Plan approved on issue #${issue_number}."
+      return 0
+    fi
+  done
+
+  # No "go ahead" found — treat the latest non-prauto comment as a counter-proposal
+  COUNTER_PROPOSAL=$(echo "$after_comments" | jq -r '.[-1].body')
+  info "Counter-proposal found on issue #${issue_number}."
+  return 2
+}
