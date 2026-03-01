@@ -112,12 +112,29 @@ dev_env/
 │   ├── install.sh                        # Installs DataSpoke infra via helm-charts/dataspoke with values-dev.yaml
 │   └── uninstall.sh                      # Uninstalls DataSpoke infra Helm release
 │
-└── dataspoke-example/
-    ├── install.sh                        # Applies manifests and waits for readiness
-    ├── uninstall.sh                      # Deletes manifests
-    └── manifests/
-        ├── kafka.yaml                    # Kafka (KRaft) Deployment + Service + PVC + topic-init Job
-        └── postgres.yaml                 # PostgreSQL 15 Deployment + Service + Secret + PVC
+├── dataspoke-example/
+│   ├── install.sh                        # Applies manifests and waits for readiness
+│   ├── uninstall.sh                      # Deletes manifests
+│   └── manifests/
+│       ├── kafka.yaml                    # Kafka (KRaft) Deployment + Service + PVC + topic-init Job
+│       └── postgres.yaml                 # PostgreSQL 15 Deployment + Service + Secret + PVC
+│
+├── dummy-data-reset.sh                   # Idempotent reset of dummy data (SQL + Kafka)
+└── dummy-data/
+    ├── sql/
+    │   ├── 00_schemas.sql                # 11 CREATE SCHEMA statements
+    │   ├── 01_catalog.sql                # UC1, UC4, UC7 — genre_hierarchy, title_master, editions
+    │   ├── 02_orders.sql                 # UC3, UC5, UC7 — order_items, fulfillment, raw_events, eu_purchase_history
+    │   ├── 03_customers.sql              # UC5 — eu_profiles (PII: email, name, DOB)
+    │   ├── 04_reviews.sql                # UC2 — user_ratings (healthy) + user_ratings_legacy (degraded)
+    │   ├── 05_publishers.sql             # UC1 — feed_raw (upstream JSONB payloads)
+    │   ├── 06_shipping.sql               # UC3 — carrier_status (UPS/FedEx/DHL)
+    │   ├── 07_inventory.sql              # UC4 — book_stock (Imazon warehouses)
+    │   ├── 08_marketing.sql              # UC5 — eu_email_campaigns (downstream of PII)
+    │   └── 09_ebooknow.sql              # UC4 — eBookNow: digital_catalog, ebook_assets, listing_items
+    └── kafka/
+        ├── init-topics.sh                # Delete + recreate 3 topics
+        └── seed-messages.sh              # Produce ~45 JSON messages
 ```
 
 > **Key change from v0.5**: `dataspoke/` is renamed to `dataspoke-infra/`. This directory no longer installs application components (frontend, API, workers). It installs only infrastructure dependencies using the umbrella Helm chart (`helm-charts/dataspoke/`) with the dev overlay (`values-dev.yaml`), which disables all application subcharts. See [HELM_CHART.md](HELM_CHART.md) for chart details.
@@ -371,6 +388,85 @@ This Kafka instance is **separate** from DataHub's prerequisites Kafka in `datah
 6. Wait for Kafka: `kubectl rollout status deployment/example-kafka --timeout=3m`
 7. Wait for topic-init job: `kubectl wait --for=condition=complete job/example-kafka-topic-init --timeout=2m`
 8. Print connection details for PostgreSQL and Kafka
+
+---
+
+## Dummy Data Reset
+
+The `dummy-data-reset.sh` script populates `example-postgres` and `example-kafka` with realistic sample data based on Imazon use-case scenarios. It is **idempotent**: every run drops all custom schemas CASCADE and recreates them, and deletes+recreates Kafka topics.
+
+### Prerequisites
+
+- Dev environment cluster running (`install.sh` completed)
+- `example-postgres` and `example-kafka` deployments are Ready in `dummy-data1`
+
+### Usage
+
+```bash
+cd dev_env && ./dummy-data-reset.sh
+```
+
+### PostgreSQL Schema Summary (17 tables, ~600 rows)
+
+| Schema | Table | Rows | Primary UC | Key Characteristics |
+|--------|-------|------|------------|---------------------|
+| `catalog` | `genre_hierarchy` | 15 | UC7 | Self-referencing hierarchy (code PK, parent_code FK) |
+| `catalog` | `title_master` | 30 | UC1,UC7 | ~18 cols, isbn+edition_id composite PK, genre_code FK |
+| `catalog` | `editions` | 40 | UC1,UC7 | edition_id PK, isbn, format; join path to order_items |
+| `orders` | `order_items` | 80 | UC7 | edition_id FK → editions, order_id FK |
+| `orders` | `daily_fulfillment_summary` | 30 | UC3 | 30 days; 1 anomalous low-volume day (Jan 15) |
+| `orders` | `raw_events` | 100 | UC3 | Event stream: placed/confirmed/shipped/delivered |
+| `orders` | `eu_purchase_history` | 30 | UC5 | PII: shipping_address, payment_last4 |
+| `customers` | `eu_profiles` | 20 | UC5 | PII: email, full_name, DOB; EU country codes (DE/FR/ES/IT/NL) |
+| `reviews` | `user_ratings` | 50 | UC2 | Healthy: rating_score NOT NULL |
+| `reviews` | `user_ratings_legacy` | 50 | UC2 | Degraded: ~30% NULL rating_score (15/50 rows) |
+| `publishers` | `feed_raw` | 20 | UC1 | Upstream feed with raw_payload JSONB |
+| `shipping` | `carrier_status` | 40 | UC3 | UPS/FedEx/DHL, includes delayed and exception statuses |
+| `inventory` | `book_stock` | 25 | UC4 | Imazon warehouse stock across WH-East/West/Central |
+| `marketing` | `eu_email_campaigns` | 15 | UC5 | Downstream of eu_profiles; customer_ids array |
+| `products` | `digital_catalog` | 20 | UC4 | eBookNow: ~30% NULL isbn, free-text creator field |
+| `content` | `ebook_assets` | 20 | UC4 | eBookNow: EPUB/PDF/MOBI/COVER/SAMPLE assets |
+| `storefront` | `listing_items` | 15 | UC4 | eBookNow: marketplace listings with badges |
+
+### Kafka Topics (3 topics, ~45 messages)
+
+| Topic | Messages | Purpose |
+|-------|----------|---------|
+| `imazon.orders.events` | 20 | UC3 — order lifecycle events (JSON) |
+| `imazon.shipping.updates` | 15 | UC3 — carrier tracking updates (JSON) |
+| `imazon.reviews.new` | 10 | UC2 — new review submissions (JSON) |
+
+### Data Design Choices
+
+- **UC2 anomaly**: `user_ratings_legacy` has 15/50 rows with NULL `rating_score` (30% null rate) vs. `user_ratings` which is fully populated — allows testing data quality detection.
+- **UC3 SLA**: `daily_fulfillment_summary` has 1 anomalous day (Jan 15) with `row_count=12` vs. a typical ~145 — allows testing freshness/volume anomaly detection.
+- **UC4 overlap**: ~70% of `products.digital_catalog` titles match `catalog.title_master` by title/ISBN — tests cross-source lineage matching after eBookNow acquisition.
+- **UC5 PII**: Fake but structurally realistic EU names/addresses across DE, FR, ES, IT, NL — tests PII classification and GDPR propagation.
+- **UC7 join path**: Full referential integrity across `order_items → editions → title_master → genre_hierarchy` — tests lineage tracing through multi-hop joins.
+- **ISBNs**: 978-prefix, obviously fake (e.g., `9780000000001`) — no collision with real books.
+
+### Verification
+
+```bash
+# After running dummy-data-reset.sh, port-forward and verify:
+psql -h localhost -p 9102 -U postgres -d example_db
+
+# Check tables exist
+\dt catalog.*
+
+# Check row counts
+SELECT count(*) FROM catalog.title_master;              -- expect 30
+SELECT count(*) FROM reviews.user_ratings_legacy
+  WHERE rating_score IS NULL;                            -- expect 15
+
+# Check UC7 join path
+SELECT g.display_name, t.title, e.format, oi.quantity
+FROM orders.order_items oi
+JOIN catalog.editions e ON e.edition_id = oi.edition_id
+JOIN catalog.title_master t ON t.isbn = e.isbn
+JOIN catalog.genre_hierarchy g ON g.code = t.genre_code
+LIMIT 5;
+```
 
 ---
 
@@ -674,7 +770,7 @@ cd src && alembic upgrade head
 
 ## Open Questions
 
-- [ ] Should `dataspoke-example` sources pre-populate sample data (seed SQL scripts) for realistic ingestion testing?
+- [x] Should `dataspoke-example` sources pre-populate sample data (seed SQL scripts) for realistic ingestion testing? → **Yes.** Implemented via `dev_env/dummy-data-reset.sh` with 10 SQL seed files (17 tables, ~600 rows) and 3 Kafka topics (~45 messages). See [Dummy Data Reset](#dummy-data-reset).
 - [ ] Should MAE/MCE consumer memory limits be further reduced (e.g., to 384Mi) to free more headroom? The upstream defaults of 1536Mi are sized for production throughput; monitoring actual dev usage would inform whether 512Mi is still too generous.
 
 ---

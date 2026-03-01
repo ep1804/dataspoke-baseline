@@ -151,24 +151,46 @@ The `DATASPOKE_*` variables in `.env` point to `localhost` — the port-forwards
 
 ### 7. Access example data sources
 
-Forward example PostgreSQL:
+Forward example PostgreSQL and Kafka:
 
 ```bash
-source .env
-kubectl port-forward \
-  --namespace $DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE \
-  svc/example-postgres $DATASPOKE_DEV_KUBE_DUMMY_DATA_POSTGRES_PORT_FORWARD_PORT:5432
+./dummy-data-port-forward.sh        # start both forwards in background
+./dummy-data-port-forward.sh --stop # stop and clean up PIDs
 ```
 
-Credentials: `postgres` / `ExampleDev2024!` (database: `example_db`)
+| Service | Local Address | Credentials |
+|---------|--------------|-------------|
+| PostgreSQL | localhost:9102 | `postgres` / `ExampleDev2024!` (database: `example_db`) |
+| Kafka | localhost:9104 | — |
 
-Forward example Kafka:
+### 8. Populate dummy data
+
+Populate `example-postgres` and `example-kafka` with realistic Imazon use-case data:
 
 ```bash
-kubectl port-forward \
-  --namespace $DATASPOKE_DEV_KUBE_DUMMY_DATA_NAMESPACE \
-  svc/example-kafka $DATASPOKE_DEV_KUBE_DUMMY_DATA_KAFKA_PORT_FORWARD_PORT:9092
+./dummy-data-reset.sh
 ```
+
+This is **idempotent** — every run drops all custom schemas CASCADE and recreates them, and deletes+recreates Kafka topics. Safe to re-run at any time.
+
+**What gets created:**
+
+- **PostgreSQL**: 11 schemas, 17 tables, ~600 rows covering UC1-UC7 scenarios (catalog, orders, customers, reviews, publishers, shipping, inventory, marketing, eBookNow products/content/storefront)
+- **Kafka**: 3 topics (`imazon.orders.events`, `imazon.shipping.updates`, `imazon.reviews.new`) with ~45 JSON messages
+
+**Verify:**
+
+```bash
+# Connect via port-forward (start dummy-data-port-forward.sh first)
+psql -h localhost -p 9102 -U postgres -d example_db
+
+\dt catalog.*                                              -- list catalog tables
+SELECT count(*) FROM catalog.title_master;                 -- expect 30
+SELECT count(*) FROM reviews.user_ratings_legacy
+  WHERE rating_score IS NULL;                              -- expect 15 (~30% null rate)
+```
+
+See `spec/feature/DEV_ENV.md §Dummy Data Reset` for full schema details and data design choices.
 
 ## Verify Installation
 
@@ -211,7 +233,9 @@ dev_env/
 ├── datahub/                      # DataHub Helm install (prerequisites + datahub charts)
 ├── dataspoke-infra/              # DataSpoke infra via umbrella chart (values-dev.yaml)
 ├── dataspoke-lock/               # Lock service (plain K8s manifests, dataspoke-01 ns)
-└── dataspoke-example/            # Example data sources (plain K8s manifests)
+├── dataspoke-example/            # Example data sources (plain K8s manifests)
+├── dummy-data-reset.sh           # Idempotent reset of dummy data (SQL + Kafka)
+└── dummy-data/                   # SQL seed files + Kafka topic/message scripts
 ```
 
 ## Environment Variables

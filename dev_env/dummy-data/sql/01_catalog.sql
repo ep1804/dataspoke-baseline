@@ -1,0 +1,133 @@
+-- 01_catalog.sql — UC1, UC4, UC7: genre hierarchy, title master, editions.
+
+-- Genre hierarchy (self-referencing)
+CREATE TABLE catalog.genre_hierarchy (
+    code        VARCHAR(20) PRIMARY KEY,
+    display_name VARCHAR(100) NOT NULL,
+    parent_code VARCHAR(20) REFERENCES catalog.genre_hierarchy(code)
+);
+
+INSERT INTO catalog.genre_hierarchy (code, display_name, parent_code) VALUES
+('FIC',       'Fiction',              NULL),
+('FIC-THR',   'Thriller',             'FIC'),
+('FIC-ROM',   'Romance',              'FIC'),
+('FIC-SCI',   'Science Fiction',      'FIC'),
+('FIC-FAN',   'Fantasy',              'FIC'),
+('FIC-LIT',   'Literary Fiction',     'FIC'),
+('NF',        'Non-Fiction',          NULL),
+('NF-BIO',    'Biography',            'NF'),
+('NF-HIS',    'History',              'NF'),
+('NF-SCI',    'Popular Science',      'NF'),
+('NF-BUS',    'Business',             'NF'),
+('NF-SELF',   'Self-Help',            'NF'),
+('CH',        'Children',             NULL),
+('CH-PIC',    'Picture Books',        'CH'),
+('CH-MG',     'Middle Grade',         'CH');
+
+-- Title master (~30 rows, ~18 cols)
+CREATE TABLE catalog.title_master (
+    isbn          VARCHAR(17) NOT NULL,
+    edition_id    SERIAL,
+    title         VARCHAR(300) NOT NULL,
+    subtitle      VARCHAR(300),
+    author_name   VARCHAR(200) NOT NULL,
+    genre_code    VARCHAR(20) NOT NULL REFERENCES catalog.genre_hierarchy(code),
+    publisher     VARCHAR(200),
+    publish_date  DATE,
+    language      VARCHAR(5) DEFAULT 'en',
+    page_count    INTEGER,
+    weight_grams  INTEGER,
+    list_price    NUMERIC(10,2),
+    currency      VARCHAR(3) DEFAULT 'USD',
+    is_active     BOOLEAN DEFAULT TRUE,
+    created_at    TIMESTAMP DEFAULT NOW(),
+    updated_at    TIMESTAMP DEFAULT NOW(),
+    description   TEXT,
+    cover_url     VARCHAR(500),
+    PRIMARY KEY (isbn, edition_id)
+);
+
+INSERT INTO catalog.title_master (isbn, title, subtitle, author_name, genre_code, publisher, publish_date, page_count, weight_grams, list_price, description) VALUES
+('9780000000001', 'The Silent Cipher',        NULL,                        'Elena Vasquez',    'FIC-THR', 'Imazon Press',      '2023-03-15', 342, 380, 14.99, 'A cryptographer uncovers a conspiracy hidden in plain text.'),
+('9780000000002', 'Quantum Dreams',           'A Novel of Tomorrow',       'Marcus Chen',      'FIC-SCI', 'Imazon Press',      '2023-06-01', 418, 440, 16.99, 'Humanity reaches for the stars and finds something reaching back.'),
+('9780000000003', 'Love in the Algorithm',    NULL,                        'Sofia Bergström',  'FIC-ROM', 'Nordic House',      '2023-01-20', 288, 310, 13.99, 'Two data scientists find connection in unexpected outputs.'),
+('9780000000004', 'The Dragon Codex',         NULL,                        'James Okafor',     'FIC-FAN', 'Imazon Press',      '2022-11-10', 512, 580, 18.99, 'An ancient codex holds the key to awakening the last dragon.'),
+('9780000000005', 'Echoes of Empire',         'Rome to Renaissance',       'Dr. Lucia Ferri',  'NF-HIS',  'Academic Lane',     '2023-09-05', 380, 420, 22.99, 'A sweeping history of Mediterranean power shifts.'),
+('9780000000006', 'The Innovator Mindset',    NULL,                        'Raj Patel',        'NF-BUS',  'Summit Books',      '2024-01-15', 256, 290, 19.99, 'How the world''s best entrepreneurs think differently.'),
+('9780000000007', 'My Life in Code',          'A Memoir',                  'Ada Kowalski',     'NF-BIO',  'Imazon Press',      '2023-07-22', 304, 340, 17.99, 'From Warsaw to Silicon Valley — one programmer''s journey.'),
+('9780000000008', 'Tiny Explorers',           'A Picture Book Adventure',  'Maria Santos',     'CH-PIC',  'Little Readers Co', '2023-04-01', 32,  200, 9.99,  'Follow three friends on a nature discovery walk.'),
+('9780000000009', 'Stars and Quarks',         'Physics for Everyone',      'Prof. Yuki Tanaka','NF-SCI',  'Imazon Press',      '2024-02-28', 224, 260, 15.99, 'A gentle introduction to the universe''s building blocks.'),
+('9780000000010', 'The Midnight Garden',      NULL,                        'Claire Dubois',    'FIC-LIT', 'Gallimard US',      '2023-08-14', 196, 220, 12.99, 'A woman returns to her childhood home and unearths buried secrets.'),
+('9780000000011', 'Rise and Grind',           'Morning Routines of CEOs',  'Tom Harwick',      'NF-SELF', 'Summit Books',      '2023-05-10', 210, 240, 14.99, 'Start your day like the world''s most productive people.'),
+('9780000000012', 'The Frost Blade',          NULL,                        'James Okafor',     'FIC-FAN', 'Imazon Press',      '2024-03-01', 480, 540, 18.99, 'Sequel to The Dragon Codex — the war for the northern realms begins.'),
+('9780000000013', 'Ocean Whispers',           NULL,                        'Sofia Bergström',  'FIC-ROM', 'Nordic House',      '2024-01-10', 302, 330, 14.99, 'A marine biologist and a fisherman navigate love and the sea.'),
+('9780000000014', 'Cyber Siege',              'A Thriller',                'Elena Vasquez',    'FIC-THR', 'Imazon Press',      '2024-04-20', 368, 400, 15.99, 'When the grid goes dark, one woman holds the key.'),
+('9780000000015', 'The Pocket Universe',      NULL,                        'Marcus Chen',      'FIC-SCI', 'Imazon Press',      '2024-06-15', 390, 430, 17.99, 'A physicist accidentally creates a universe in her lab.'),
+('9780000000016', 'Little Chef',              'Cooking for Kids',          'Maria Santos',     'CH-PIC',  'Little Readers Co', '2024-02-14', 40,  220, 10.99, 'Simple recipes for young chefs, with colorful illustrations.'),
+('9780000000017', 'The Gene Revolution',      NULL,                        'Prof. Yuki Tanaka','NF-SCI',  'Academic Lane',     '2024-05-01', 280, 310, 18.99, 'CRISPR, epigenetics, and the future of medicine.'),
+('9780000000018', 'Boardroom Battles',        NULL,                        'Raj Patel',        'NF-BUS',  'Summit Books',      '2024-07-10', 272, 300, 21.99, 'Inside the power struggles that shape global corporations.'),
+('9780000000019', 'The Last Lighthouse',      NULL,                        'Claire Dubois',    'FIC-LIT', 'Gallimard US',      '2024-08-20', 208, 230, 13.99, 'A keeper tends her post as the world changes around her.'),
+('9780000000020', 'Pirate Panda',             'A Middle Grade Adventure',  'Tom Harwick',      'CH-MG',   'Little Readers Co', '2024-03-15', 180, 210, 11.99, 'A panda stows away on a pirate ship and finds treasure.'),
+('9780000000021', 'Neural Paths',             NULL,                        'Ada Kowalski',     'NF-SCI',  'Imazon Press',      '2024-09-01', 320, 350, 19.99, 'How artificial intelligence mirrors the human brain.'),
+('9780000000022', 'The Ember Throne',         NULL,                        'James Okafor',     'FIC-FAN', 'Imazon Press',      '2024-10-15', 520, 590, 19.99, 'The Dragon Codex trilogy concludes in fire and fury.'),
+('9780000000023', 'Data-Driven Love',         NULL,                        'Sofia Bergström',  'FIC-ROM', 'Nordic House',      '2024-11-01', 310, 340, 14.99, 'When a dating app goes haywire, real sparks fly.'),
+('9780000000024', 'Zero Day',                 'A Cyber Thriller',          'Elena Vasquez',    'FIC-THR', 'Imazon Press',      '2024-12-01', 356, 390, 16.99, 'A zero-day exploit threatens the global financial system.'),
+('9780000000025', 'The Hidden Continent',     NULL,                        'Dr. Lucia Ferri',  'NF-HIS',  'Academic Lane',     '2024-06-20', 400, 450, 24.99, 'Uncovering the forgotten civilizations of the southern seas.'),
+('9780000000026', 'Startup Survival',         'Lessons from the Trenches', 'Raj Patel',        'NF-BUS',  'Summit Books',      '2025-01-05', 240, 270, 17.99, 'What they don''t teach you in business school.'),
+('9780000000027', 'The Clockwork Forest',     NULL,                        'Claire Dubois',    'FIC-LIT', 'Gallimard US',      '2025-02-14', 220, 250, 14.99, 'In a world where nature runs on gears, one girl seeks the wild.'),
+('9780000000028', 'Space Puppies',            NULL,                        'Maria Santos',     'CH-PIC',  'Little Readers Co', '2025-01-20', 36,  210, 10.99, 'Puppies in space suits explore the solar system.'),
+('9780000000029', 'Biohack',                  'Optimizing Human 2.0',      'Tom Harwick',      'NF-SELF', 'Summit Books',      '2025-03-01', 230, 260, 16.99, 'The science of self-improvement at the cellular level.'),
+('9780000000030', 'The Infinite Library',     NULL,                        'Marcus Chen',      'FIC-SCI', 'Imazon Press',      '2025-04-10', 410, 460, 18.99, 'A library that contains every book ever written — and some that shouldn''t exist.');
+
+-- Editions (~40 rows) — multiple formats per title
+CREATE TABLE catalog.editions (
+    edition_id  SERIAL PRIMARY KEY,
+    isbn        VARCHAR(17) NOT NULL,
+    format      VARCHAR(20) NOT NULL CHECK (format IN ('Hardcover','Paperback','eBook','Audiobook')),
+    price       NUMERIC(10,2) NOT NULL,
+    release_date DATE,
+    is_active   BOOLEAN DEFAULT TRUE,
+    created_at  TIMESTAMP DEFAULT NOW()
+);
+
+INSERT INTO catalog.editions (isbn, format, price, release_date) VALUES
+('9780000000001', 'Hardcover',  24.99, '2023-03-15'),
+('9780000000001', 'Paperback',  14.99, '2023-09-15'),
+('9780000000002', 'Hardcover',  26.99, '2023-06-01'),
+('9780000000002', 'eBook',      9.99,  '2023-06-01'),
+('9780000000003', 'Paperback',  13.99, '2023-01-20'),
+('9780000000003', 'Audiobook',  19.99, '2023-04-01'),
+('9780000000004', 'Hardcover',  28.99, '2022-11-10'),
+('9780000000004', 'Paperback',  18.99, '2023-05-10'),
+('9780000000004', 'eBook',      11.99, '2022-11-10'),
+('9780000000005', 'Hardcover',  32.99, '2023-09-05'),
+('9780000000006', 'Hardcover',  29.99, '2024-01-15'),
+('9780000000006', 'eBook',      14.99, '2024-01-15'),
+('9780000000007', 'Paperback',  17.99, '2023-07-22'),
+('9780000000008', 'Hardcover',  9.99,  '2023-04-01'),
+('9780000000009', 'Paperback',  15.99, '2024-02-28'),
+('9780000000009', 'eBook',      8.99,  '2024-02-28'),
+('9780000000010', 'Paperback',  12.99, '2023-08-14'),
+('9780000000011', 'Paperback',  14.99, '2023-05-10'),
+('9780000000011', 'Audiobook',  17.99, '2023-08-01'),
+('9780000000012', 'Hardcover',  28.99, '2024-03-01'),
+('9780000000013', 'Paperback',  14.99, '2024-01-10'),
+('9780000000014', 'Hardcover',  25.99, '2024-04-20'),
+('9780000000014', 'eBook',      10.99, '2024-04-20'),
+('9780000000015', 'Hardcover',  27.99, '2024-06-15'),
+('9780000000016', 'Hardcover',  10.99, '2024-02-14'),
+('9780000000017', 'Hardcover',  28.99, '2024-05-01'),
+('9780000000017', 'eBook',      13.99, '2024-05-01'),
+('9780000000018', 'Hardcover',  31.99, '2024-07-10'),
+('9780000000019', 'Paperback',  13.99, '2024-08-20'),
+('9780000000020', 'Paperback',  11.99, '2024-03-15'),
+('9780000000021', 'Hardcover',  29.99, '2024-09-01'),
+('9780000000022', 'Hardcover',  29.99, '2024-10-15'),
+('9780000000022', 'eBook',      12.99, '2024-10-15'),
+('9780000000023', 'Paperback',  14.99, '2024-11-01'),
+('9780000000024', 'Hardcover',  26.99, '2024-12-01'),
+('9780000000025', 'Hardcover',  34.99, '2024-06-20'),
+('9780000000026', 'Paperback',  17.99, '2025-01-05'),
+('9780000000027', 'Paperback',  14.99, '2025-02-14'),
+('9780000000028', 'Hardcover',  10.99, '2025-01-20'),
+('9780000000030', 'Hardcover',  28.99, '2025-04-10');
