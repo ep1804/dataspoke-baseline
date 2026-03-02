@@ -290,6 +290,7 @@ find_mergeable_prs() {
 
 # Squash all commits on the PR branch into one, force-push, and mark as done.
 # Does NOT merge the PR or close the issue — leaves that for the human.
+# Rebuilds the commit message via Claude based on the issue description and git diff.
 # Must be called from inside the worktree (checkout_branch_worktree already ran).
 # Usage: squash_and_finalize_pr <pr_number> <pr_branch> <pr_title> <pr_body> <issue_number>
 squash_and_finalize_pr() {
@@ -327,35 +328,40 @@ squash_and_finalize_pr() {
     return 1
   }
 
-  local commit_count
-  commit_count=$(git rev-list --count "${merge_base}..HEAD" 2>/dev/null || echo 0)
+  # Fetch issue description for commit message generation
+  local issue_title issue_body
+  issue_title=$(gh issue view "$issue_number" -R "$PRAUTO_GITHUB_REPO" \
+    --json title --jq '.title // ""' 2>/dev/null || echo "")
+  issue_body=$(gh issue view "$issue_number" -R "$PRAUTO_GITHUB_REPO" \
+    --json body --jq '.body // ""' 2>/dev/null || echo "")
 
-  # Build commit message
+  # Gather diff info for Claude
+  local diff_stat diff_content
+  diff_stat=$(git diff --stat "${merge_base}..HEAD" 2>/dev/null || echo "(no diff stat)")
+  diff_content=$(git diff "${merge_base}..HEAD" 2>/dev/null || echo "(no diff)")
+
+  # Generate commit message via Claude (Phase 4)
+  generate_squash_commit_message \
+    "$issue_number" "$issue_title" "$issue_body" \
+    "$pr_number" "$diff_stat" "$diff_content"
+
   local msg_file
   msg_file=$(mktemp /tmp/prauto-squash-msg-XXXXXX)
-  printf '%s\n\nRefs #%s\n' "$pr_title" "$issue_number" > "$msg_file"
+  printf '%s\n' "$SQUASH_COMMIT_MESSAGE" > "$msg_file"
 
   local author_arg="${PRAUTO_GIT_AUTHOR_NAME} <${PRAUTO_GIT_AUTHOR_EMAIL}>"
 
-  # Squash (amend if single commit, reset+commit if multiple)
-  if [[ "$commit_count" -eq 1 ]]; then
-    git commit --amend --author="$author_arg" --file="$msg_file" 2>/dev/null || {
-      warn "PR #${pr_number}: git commit --amend failed."
-      rm -f "$msg_file"
-      return 1
-    }
-  else
-    git reset --soft "$merge_base" 2>/dev/null || {
-      warn "PR #${pr_number}: git reset --soft failed."
-      rm -f "$msg_file"
-      return 1
-    }
-    git commit --author="$author_arg" --file="$msg_file" 2>/dev/null || {
-      warn "PR #${pr_number}: git commit (squash) failed."
-      rm -f "$msg_file"
-      return 1
-    }
-  fi
+  # Always rebuild as a single commit: reset to merge base and recommit
+  git reset --soft "$merge_base" 2>/dev/null || {
+    warn "PR #${pr_number}: git reset --soft failed."
+    rm -f "$msg_file"
+    return 1
+  }
+  git commit --author="$author_arg" --file="$msg_file" 2>/dev/null || {
+    warn "PR #${pr_number}: git commit (squash) failed."
+    rm -f "$msg_file"
+    return 1
+  }
   rm -f "$msg_file"
 
   # Force-push as the prauto account.

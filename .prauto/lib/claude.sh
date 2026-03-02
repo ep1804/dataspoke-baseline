@@ -173,6 +173,54 @@ run_implementation() {
   fi
 }
 
+# Phase 4: Generate squash commit message from issue description and diff.
+# Uses a single-turn, no-tool Claude invocation to produce a conventional commit message.
+# Usage: generate_squash_commit_message <issue_number> <issue_title> <issue_body> <pr_number> <diff_stat> <diff>
+# Sets: SQUASH_COMMIT_MESSAGE
+generate_squash_commit_message() {
+  local issue_number="$1"
+  local issue_title="$2"
+  local issue_body="$3"
+  local pr_number="$4"
+  local diff_stat="$5"
+  local diff="$6"
+
+  # Truncate diff to ~4000 chars to stay within prompt budget
+  local truncated_diff="$diff"
+  if [[ ${#diff} -gt 4000 ]]; then
+    truncated_diff="${diff:0:4000}
+... (truncated)"
+  fi
+
+  local prompt
+  prompt=$(render_prompt "${PRAUTO_DIR}/prompts/squash-commit.md" \
+    "issue_number=${issue_number}" \
+    "issue_title=${issue_title}" \
+    "issue_body=${issue_body}" \
+    "pr_number=${pr_number}" \
+    "diff_stat=${diff_stat}" \
+    "diff=${truncated_diff}")
+
+  local budget="${PRAUTO_CLAUDE_MAX_BUDGET_ANALYSIS:-}"
+
+  # Minimal invocation: 1 turn, no tools
+  invoke_claude "$prompt" "" "1" "$budget"
+
+  SQUASH_COMMIT_MESSAGE="$CLAUDE_OUTPUT"
+
+  # Strip markdown fences if Claude wrapped the output
+  SQUASH_COMMIT_MESSAGE=$(echo "$SQUASH_COMMIT_MESSAGE" | sed '/^```/d')
+
+  if [[ -z "$SQUASH_COMMIT_MESSAGE" ]]; then
+    warn "Claude failed to generate commit message. Falling back to PR title."
+    SQUASH_COMMIT_MESSAGE="${issue_title}
+
+(issue #${issue_number}, PR #${pr_number})"
+  fi
+
+  info "Squash commit message generated."
+}
+
 # PR review phase: address reviewer feedback.
 # Sets: REVIEW_SESSION_ID
 run_pr_review() {

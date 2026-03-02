@@ -80,7 +80,8 @@ All GitHub API operations (issue labels, comments, PR creation) will then run as
 ├── prompts/
 │   ├── system-append.md        # Worker identity prompt
 │   ├── issue-analysis.md       # Phase 1: analysis prompt
-│   └── implementation.md       # Phase 2: implementation prompt
+│   ├── implementation.md       # Phase 2: implementation prompt
+│   └── squash-commit.md        # Phase 4: squash commit message generation
 ├── state/                      # [GITIGNORED] Runtime state
 │   ├── current-job.json        # Active job metadata
 │   ├── heartbeat.lock          # PID-based lock file
@@ -103,12 +104,13 @@ Each heartbeat performs at most one job:
 1. Acquires a PID-based lock (prevents concurrent runs)
 2. Loads config and checks Claude token quota
 3. Resumes any interrupted job from a prior heartbeat
-4. Checks open PRs for reviewer comments to address
-5. Finds an eligible issue (oldest with `prauto:ready` label)
-6. Claims the issue (optimistic lock via label swap)
-7. Runs Phase 1: Analysis (read-only Claude session)
-8. Runs Phase 2: Implementation (read+write Claude session)
-9. Pushes branch and creates/updates PR
+4. Squash-finalizes approved PRs — rebuilds the commit message via Claude using the issue description and git diff, always producing a single conventional commit with `(issue #N, PR #N)` reference
+5. Checks open PRs for reviewer comments to address
+6. Finds an eligible issue (oldest with `prauto:ready` label)
+7. Claims the issue (optimistic lock via label swap)
+8. Runs Phase 1: Analysis (read-only Claude session)
+9. Runs Phase 2: Implementation (read+write Claude session)
+10. Pushes branch and creates/updates PR
 
 ## GitHub Label Setup
 
@@ -124,6 +126,7 @@ npx github-label-sync --access-token "$(gh auth token)" --labels .github/labels.
 [human adds prauto:ready]
     ├── prauto claims → removes prauto:ready, adds prauto:wip
     │       ├── success → removes prauto:wip, adds prauto:review
+    │       │       └── approved + squash-finalized → removes prauto:review, adds prauto:done
     │       └── failure → removes prauto:wip, adds prauto:failed
     └── (no prauto pickup yet → stays prauto:ready)
 ```
