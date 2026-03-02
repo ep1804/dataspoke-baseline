@@ -224,12 +224,18 @@ find_actionable_prs() {
   return 1
 }
 
-# Find prauto-owned PRs that are approved by the repo owner and merge-ready.
+# Find prauto-owned PRs that are approved by an org member and merge-ready.
 # Sets: MERGEABLE_PR_NUMBER, MERGEABLE_PR_BRANCH, MERGEABLE_PR_TITLE,
 #       MERGEABLE_PR_BODY, MERGEABLE_PR_ISSUE
 # Returns 0 if found, 1 if none.
 find_mergeable_prs() {
-  local repo_owner="${PRAUTO_GITHUB_REPO%%/*}"
+  # Fetch org members for approval check
+  if ! fetch_org_members; then
+    warn "Cannot check PR approvals without org member list."
+    return 1
+  fi
+  local members_json="$ORG_MEMBERS_JSON"
+
   local prs_json
   prs_json=$(gh pr list -R "$PRAUTO_GITHUB_REPO" --state open \
     --json number,headRefName,title,body,labels,assignees --limit 50 2>/dev/null) || {
@@ -265,13 +271,17 @@ find_mergeable_prs() {
     mergeable=$(echo "$pr_detail"    | jq -r '.mergeable')
     merge_state=$(echo "$pr_detail"  | jq -r '.mergeStateStatus')
 
-    local is_approved
-    is_approved=$(echo "$pr_detail" | jq -r --arg owner "$repo_owner" '
+    # Check if any org member left an APPROVED review (latest review per member)
+    local is_approved approver
+    approver=$(echo "$pr_detail" | jq -r --argjson members "$members_json" '
       (.reviews // [])
-      | map(select(.author.login == $owner))
-      | sort_by(.submittedAt)
-      | last // {}
-      | .state == "APPROVED"')
+      | map(select(.author.login as $a | $members | index($a) != null))
+      | group_by(.author.login)
+      | map(sort_by(.submittedAt) | last)
+      | map(select(.state == "APPROVED"))
+      | first // empty
+      | .author.login // empty')
+    is_approved=$([[ -n "$approver" ]] && echo "true" || echo "false")
 
     if [[ "$is_approved" == "true" ]] && \
        [[ "$mergeable" == "MERGEABLE" ]] && \
@@ -281,7 +291,7 @@ find_mergeable_prs() {
       MERGEABLE_PR_TITLE="$pr_title"
       MERGEABLE_PR_BODY="$pr_body"
       MERGEABLE_PR_ISSUE="${pr_branch#${PRAUTO_BRANCH_PREFIX}I-}"
-      info "Found merge-ready PR #${pr_number} approved by ${repo_owner}."
+      info "Found merge-ready PR #${pr_number} approved by org member '${approver}'."
       return 0
     fi
   done <<< "$pr_numbers"
