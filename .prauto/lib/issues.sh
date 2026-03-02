@@ -18,6 +18,23 @@ comment_exists() {
   | head -1 | grep -q .
 }
 
+# Fetch organization member logins as a JSON array.
+# Usage: fetch_org_members
+# Sets ORG_MEMBERS_JSON on success (e.g. '["alice","bob"]').
+# Returns 0 on success, 1 on failure.
+fetch_org_members() {
+  local org_name="${PRAUTO_GITHUB_REPO%%/*}"
+  ORG_MEMBERS_JSON=$(gh api "orgs/${org_name}/members" --paginate --jq '[.[].login]' \
+    2>/dev/null | jq -s 'add') || {
+    warn "Failed to fetch org members for '${org_name}'. Is it an organization?"
+    return 1
+  }
+  local count
+  count=$(echo "$ORG_MEMBERS_JSON" | jq 'length')
+  info "Org-member filter enabled: ${count} members found in '${org_name}'."
+  return 0
+}
+
 # Find the oldest eligible issue labeled prauto:ready.
 # Sets FOUND_ISSUE_NUMBER, FOUND_ISSUE_TITLE, FOUND_ISSUE_BODY on success.
 # Returns 0 if found, 1 if none.
@@ -27,20 +44,44 @@ find_eligible_issue() {
     -R "$PRAUTO_GITHUB_REPO" \
     --label "$PRAUTO_GITHUB_LABEL_READY" \
     --state open \
-    --json number,title,body,labels \
+    --json number,title,body,labels,author \
     --limit 50 2>/dev/null) || {
     warn "Failed to list issues from GitHub."
     return 1
   }
 
+  # If org-member filter is enabled, fetch the member list
+  local org_members=""
+  if [[ -n "${PRAUTO_GITHUB_ISSUE_FROM_ORG_MEMBERS_ONLY:-}" ]]; then
+    if ! fetch_org_members; then
+      return 1
+    fi
+    org_members="$ORG_MEMBERS_JSON"
+  fi
+
   # Filter out issues that already have wip or review labels, sort by number ascending
   local filtered
-  filtered=$(echo "$issues_json" | jq -r --arg wip "$PRAUTO_GITHUB_LABEL_WIP" --arg review "$PRAUTO_GITHUB_LABEL_REVIEW" '
-    [.[] | select(
-      (.labels | map(.name) | index($wip)) == null and
-      (.labels | map(.name) | index($review)) == null
-    )] | sort_by(.number) | .[0] // empty
-  ')
+  if [[ -n "$org_members" ]]; then
+    filtered=$(echo "$issues_json" | jq -r \
+      --arg wip "$PRAUTO_GITHUB_LABEL_WIP" \
+      --arg review "$PRAUTO_GITHUB_LABEL_REVIEW" \
+      --argjson members "$org_members" '
+      [.[] | select(
+        (.labels | map(.name) | index($wip)) == null and
+        (.labels | map(.name) | index($review)) == null and
+        (.author.login as $a | $members | index($a) != null)
+      )] | sort_by(.number) | .[0] // empty
+    ')
+  else
+    filtered=$(echo "$issues_json" | jq -r \
+      --arg wip "$PRAUTO_GITHUB_LABEL_WIP" \
+      --arg review "$PRAUTO_GITHUB_LABEL_REVIEW" '
+      [.[] | select(
+        (.labels | map(.name) | index($wip)) == null and
+        (.labels | map(.name) | index($review)) == null
+      )] | sort_by(.number) | .[0] // empty
+    ')
+  fi
 
   if [[ -z "$filtered" ]]; then
     info "No eligible issues found with label ${PRAUTO_GITHUB_LABEL_READY}."

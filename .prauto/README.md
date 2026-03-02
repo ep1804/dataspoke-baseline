@@ -90,6 +90,12 @@ All GitHub API operations (issue labels, comments, PR creation) will then run as
 └── README.md
 ```
 
+## Security: Organization-Member Filter
+
+By default, prauto only picks up `prauto:ready` issues authored by members of the repository's GitHub organization. This prevents external actors from injecting work into the pipeline by opening issues with the `prauto:ready` label.
+
+Controlled by `PRAUTO_GITHUB_ISSUE_FROM_ORG_MEMBERS_ONLY` in `config.env` (set to `"true"` by default). Set to `""` (empty) to disable the filter. This feature requires the repository to be owned by a GitHub organization; it does not work with personal-account repos.
+
 ## How It Works
 
 Each heartbeat performs at most one job:

@@ -117,6 +117,11 @@ PRAUTO_GITHUB_LABEL_DONE="prauto:done"
 PRAUTO_BASE_BRANCH="dev"
 PRAUTO_BRANCH_PREFIX="prauto/"
 
+# Security: restrict prauto:ready issue pickup to organization members only.
+# Set to "true" to enable. Requires PRAUTO_GITHUB_REPO to be an org-owned repo.
+# When enabled, issues authored by non-members are silently skipped.
+PRAUTO_GITHUB_ISSUE_FROM_ORG_MEMBERS_ONLY="true"
+
 # Limits (defaults — can be overridden in config.local.env)
 PRAUTO_MAX_RETRIES_PER_JOB=3
 ```
@@ -395,10 +400,21 @@ gh issue list \
   -R "$PRAUTO_GITHUB_REPO" \
   --label "$PRAUTO_GITHUB_LABEL_READY" \
   --state open \
-  --json number,title,body,labels
+  --json number,title,body,labels,author
 ```
 
 Filter results to exclude issues already labeled `prauto:wip` or `prauto:review`. Sort by issue number ascending (oldest first) and take the first match.
+
+### Organization-member filter
+
+When `PRAUTO_GITHUB_ISSUE_FROM_ORG_MEMBERS_ONLY` is set to a non-empty value (e.g. `"true"`), `find_eligible_issue()` adds an author-membership check before selecting an issue:
+
+1. Derive the organization name from `PRAUTO_GITHUB_REPO` (the part before `/`)
+2. Fetch the list of organization members via `gh api orgs/{org}/members --paginate`
+3. Filter candidate issues to those whose `author.login` appears in the member list
+4. Issues authored by non-members are silently skipped
+
+This prevents external actors from injecting work into the prauto pipeline by opening issues with the `prauto:ready` label. The feature is designed for organization-owned repositories; if the repository owner is a personal account (not an organization), the GitHub API call will fail and `find_eligible_issue()` returns with a warning.
 
 ### Claiming an issue
 
@@ -846,6 +862,7 @@ The two-step check-then-add pattern is not fully atomic, but the verification wi
 | Cluster access | No kubectl, helm | Disallowed tools |
 | Destructive ops | No rm -rf, sudo | Disallowed tools |
 | Git push | Only orchestrator pushes | Disallowed for Claude; `git-ops.sh` handles it |
+| Issue author | Org-member filter (opt-in) | `PRAUTO_GITHUB_ISSUE_FROM_ORG_MEMBERS_ONLY` |
 | Turn limit | Per-job turn cap (primary) | `--max-turns` |
 | Budget | Per-job dollar cap (API billing only) | `--max-budget-usd` (optional) |
 | Concurrency | One job at a time | PID-based lock file |
