@@ -47,6 +47,7 @@
       "Skill(kubectl)",
       "Skill(monitor-k8s)",
       "Skill(plan-doc)",
+      "Skill(prauto-check-status)",
       "WebSearch",
       "WebFetch(domain:docs.python.org)",
       "WebFetch(domain:fastapi.tiangolo.com)",
